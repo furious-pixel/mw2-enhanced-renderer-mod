@@ -6,6 +6,9 @@ of **MechWarrior 2: 31st Century Combat**.
 **Status:** v0.9.0 beta. Expect some rough edges and please report major,
 reproducible issues.
 
+**Supported platform:** Windows x64 on Intel or AMD 64-bit hardware. Linux,
+Wine, and Windows ARM64 are not supported.
+
 ![Widescreen enhanced cockpit HUD showing the damage wireframe and centered HTAL meters](media/mw2-EnhancedRendererMod-htal-damage-wireframe.png)
 
 I made this to give my first *MechWarrior 2: 31st Century Combat* playthrough a
@@ -157,7 +160,8 @@ need to install Python, uv, or a separate copy of DOSBox-X.
 
 Supported setup:
 
-- Windows x64.
+- Windows x64 on Intel or AMD 64-bit hardware. Linux, Wine, and Windows ARM64
+  are not supported.
 - Your own copy of **MechWarrior 2: 31st Century Combat for DOS**, updated to
   **version 1.1**. Other editions are not supported.
 - Either the included 60 or 72 FPS launch profile.
