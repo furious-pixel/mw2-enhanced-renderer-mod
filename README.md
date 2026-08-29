@@ -344,6 +344,18 @@ good at reverse engineering and writing optimized numeric kernels, although it
 still tends to produce more code than necessary—something that is likely to
 improve as agentic AI matures.
 
+## Acknowledgements
+
+Thanks to @anpage for [documenting the high-frame-rate jump-jet fuel issue in
+detail](https://gist.github.com/anpage/9b5ec3d72200117e224b2e696e8b4280),
+which helped me understand the fuel-recharge issue in depth.
+
+Thanks to @Kaidine for the [MechWarrior Joystick
+Guide](https://github.com/Kaidine/Mechwarrior-Joystick-Guide/blob/main/mechwarrior%202/31st%20century%20combat/setup%20instructions.md#play-the-game),
+which made me aware that *MW2: 31CC* uses zero-order absolute joystick
+positioning. That informed the mod's HOTAS axis support for both
+absolute-position and relative-rate control.
+
 ## Credits and license
 
 The MechWarrior 2 Enhanced Renderer mod is an unofficial fan project and is
