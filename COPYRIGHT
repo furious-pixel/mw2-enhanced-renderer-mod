@@ -1,0 +1,16 @@
+MechWarrior 2 Enhanced Renderer Mod
+Copyright (C) 2026 furious-pixel
+
+Except where otherwise noted, the original code and original assets in this
+repository are licensed under the GNU General Public License version 2 or, at
+your option, any later version (GPL-2.0-or-later). The complete GNU GPL version
+2 license text is in LICENSE.
+
+This license covers project-authored material such as the renderer and support
+scripts, configuration tool, HUD and message-bar artwork, and generated terrain
+correction data.
+
+It does not relicense MechWarrior 2, DOSBox-X, the bundled font, Python, Python
+packages, DLLs, shaders, or other third-party material. Those components remain
+under their respective licenses; see THIRD_PARTY_NOTICES.md and any license
+files shipped beside them.

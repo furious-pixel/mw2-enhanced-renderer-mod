@@ -1,0 +1,31 @@
+# Local Python env
+.venv/
+
+# Local DOSBox-X runtime drop (dev builds)
+bin/
+
+# User-supplied game files (not redistributed)
+game/
+
+# Release staging
+dist/
+
+# Retired root docs and HUD-scale development artifacts
+/HIRES.md
+/HUD_LAYOUT.md
+/tools/generate_hud_scale_strips.py
+/tools/generated_hud_scales/
+/mw2mods/textures/hud_scales/
+
+# Generated performance telemetry
+frame_timing.log
+dosbox-x.log
+mw2mods/renderer_debug.log
+/mw2mods/joystick.conf
+perf-results/
+
+# Generated Python bytecode
+__pycache__/
+
+# Editor noise
+.vscode/

@@ -1,0 +1,346 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: "Existing tag to publish after a successful package audit (leave blank for artifact-only testing)"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  MOD_VERSION: "0.9.0"
+  PYTHON_VERSION: "3.14.3"
+  UV_VERSION: "0.10.9"
+  DOSBOX_VERSION: "v0.2.0"
+  DOSBOX_ARCHIVE: "dosbox-x-windows-x64-sdl2-v0.2.0.zip"
+  DOSBOX_SHA256: "72abb983985bdaf30f81533bbfcf79db905975cd3f3d4d33f97c518b96a28561"
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "${{ env.UV_VERSION }}"
+          enable-cache: false
+
+      - name: Install managed Python and locked dependencies
+        id: runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pythonInstallDir = Join-Path $env:RUNNER_TEMP "managed-python-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $pythonInstallDir) {
+            throw "Managed Python staging path already exists: $pythonInstallDir"
+          }
+
+          uv python install "$env:PYTHON_VERSION" `
+            --install-dir "$pythonInstallDir" `
+            --managed-python `
+            --no-bin `
+            --no-registry
+
+          $pythonExecutables = @(Get-ChildItem -LiteralPath $pythonInstallDir -Recurse -File -Filter "python.exe" |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.Directory.FullName "python314.dll") -PathType Leaf })
+          if ($pythonExecutables.Count -ne 1) {
+            throw "Expected exactly one managed CPython runtime, found $($pythonExecutables.Count)."
+          }
+          $pythonExe = $pythonExecutables[0].FullName
+          $pythonHome = $pythonExecutables[0].Directory.FullName
+
+          uv sync --frozen --python "$pythonExe"
+          & ".\.venv\Scripts\python.exe" -m compileall -q mw2mods tools/configure.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "Python source compilation failed."
+          }
+          "python_home=$pythonHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Download and verify dosbox-x-mod
+        id: host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Join-Path $env:RUNNER_TEMP $env:DOSBOX_ARCHIVE
+          $url = "https://github.com/furious-pixel/dosbox-x-mod/releases/download/$env:DOSBOX_VERSION/$env:DOSBOX_ARCHIVE"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+
+          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:DOSBOX_SHA256) {
+            throw "dosbox-x-mod checksum mismatch: expected $env:DOSBOX_SHA256, got $actualHash"
+          }
+
+          $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+          )
+          $hostExtract = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp "dosbox-x-mod"))
+          if (-not $hostExtract.StartsWith("$runnerTemp\", [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe host extraction path: $hostExtract"
+          }
+          if (Test-Path -LiteralPath $hostExtract) {
+            Remove-Item -LiteralPath $hostExtract -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $hostExtract
+
+          $hostExecutables = @(Get-ChildItem -LiteralPath $hostExtract -Recurse -File -Filter "dosbox-x.exe")
+          if ($hostExecutables.Count -ne 1) {
+            throw "Expected exactly one dosbox-x.exe in the host archive, found $($hostExecutables.Count)."
+          }
+          "host_root=$($hostExecutables[0].Directory.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Assemble self-contained package
+        id: assemble
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          if ($version -ne $env:MOD_VERSION) {
+            throw "VERSION is $version but the workflow expects $env:MOD_VERSION."
+          }
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version."
+          }
+
+          $packageName = "mw2-enhanced-renderer-mod-v$version-windows-x64"
+          $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+          )
+          $stage = [System.IO.Path]::GetFullPath((Join-Path $runnerTemp $packageName))
+          if (-not $stage.StartsWith("$runnerTemp\", [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe staging path: $stage"
+          }
+          if (Test-Path -LiteralPath $stage) {
+            Remove-Item -LiteralPath $stage -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          $rootFiles = @(
+            "README.md",
+            "LICENSE",
+            "COPYRIGHT",
+            "THIRD_PARTY_NOTICES.md",
+            "VERSION",
+            "configure.bat",
+            "dosbox-mw2.conf",
+            "launchmw2_60fps.bat",
+            "launchmw2_72fps.bat",
+            "launchmw2_sbs_compare.bat"
+          )
+          foreach ($file in $rootFiles) {
+            Copy-Item -LiteralPath $file -Destination $stage
+          }
+          Copy-Item -LiteralPath ".github\release-notes\v$version.md" -Destination (Join-Path $stage "RELEASE_NOTES.md")
+          Copy-Item -LiteralPath "media" -Destination (Join-Path $stage "media") -Recurse
+          Copy-Item -LiteralPath "mw2mods" -Destination (Join-Path $stage "mw2mods") -Recurse
+
+          $toolsStage = Join-Path $stage "tools"
+          New-Item -ItemType Directory -Path $toolsStage | Out-Null
+          Copy-Item -LiteralPath "tools\configure.py" -Destination $toolsStage
+          Copy-Item -LiteralPath "tools\config_ui" -Destination (Join-Path $toolsStage "config_ui") -Recurse
+
+          $binStage = Join-Path $stage "bin"
+          New-Item -ItemType Directory -Path $binStage | Out-Null
+          Copy-Item -Path "${{ steps.host.outputs.host_root }}\*" -Destination $binStage -Recurse -Force
+
+          $venvStage = Join-Path $stage ".venv"
+          New-Item -ItemType Directory -Path $venvStage | Out-Null
+          Copy-Item -Path ".venv\*" -Destination $venvStage -Recurse -Force
+
+          $pythonHome = Join-Path $venvStage "python-home"
+          New-Item -ItemType Directory -Path $pythonHome | Out-Null
+          Copy-Item -Path "${{ steps.runtime.outputs.python_home }}\*" -Destination $pythonHome -Recurse -Force
+
+          @"
+          home = .venv\python-home
+          implementation = CPython
+          version_info = $env:PYTHON_VERSION
+          include-system-site-packages = false
+          prompt = mw2-enhanced-renderer-mod
+          "@ | Set-Content -LiteralPath (Join-Path $venvStage "pyvenv.cfg") -Encoding ascii
+
+          $gameStage = Join-Path $stage "game"
+          New-Item -ItemType Directory -Path (Join-Path $gameStage "c_mech2\mech2") -Force | Out-Null
+          @(
+            "Add your own MechWarrior 2 DOS v1.1 files here.",
+            "See README.md for the required installed-game and BIN/CUE layout.",
+            "No game files are included with this mod."
+          ) | Set-Content -LiteralPath (Join-Path $gameStage "README.txt") -Encoding ascii
+
+          Push-Location $stage
+          try {
+            & ".\.venv\Scripts\python.exe" -c "import pathlib, sys; root=pathlib.Path.cwd().resolve(); base=pathlib.Path(sys.base_prefix).resolve(); assert base.is_relative_to(root / '.venv'), (base, root); import freetype, moderngl, numba, numpy, sdl2, webview; print(sys.version); print(base)"
+            if ($LASTEXITCODE -ne 0) {
+              throw "The staged portable Python environment failed validation."
+            }
+          } finally {
+            Pop-Location
+          }
+
+          Get-ChildItem -LiteralPath $stage -Recurse -Directory -Filter "__pycache__" |
+            Sort-Object FullName -Descending |
+            Remove-Item -Recurse -Force
+          Get-ChildItem -LiteralPath $stage -Recurse -File |
+            Where-Object { $_.Extension -in @(".pyc", ".pyo") } |
+            Remove-Item -Force
+
+          $pythonHomeBytes = (Get-ChildItem -LiteralPath $pythonHome -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum
+          $venvBytes = (Get-ChildItem -LiteralPath $venvStage -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum
+          Write-Output "Managed Python bytes: $pythonHomeBytes"
+          Write-Output "Portable environment bytes: $venvBytes"
+
+          "stage=$stage" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "package_name=$packageName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Create and audit archive
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+          $stage = "${{ steps.assemble.outputs.stage }}"
+          $packageName = "${{ steps.assemble.outputs.package_name }}"
+          $zipPath = Join-Path $env:RUNNER_TEMP "$packageName.zip"
+          if (Test-Path -LiteralPath $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $stage,
+            $zipPath,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false
+          )
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace("\", "/") })
+          } finally {
+            $archive.Dispose()
+          }
+
+          $required = @(
+            "README.md",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "VERSION",
+            "bin/dosbox-x.exe",
+            "bin/COPYING",
+            ".venv/Scripts/python.exe",
+            ".venv/Scripts/pythonw.exe",
+            ".venv/python-home/python314.dll",
+            ".venv/python-home/LICENSE.txt",
+            "mw2mods/render.py",
+            "tools/configure.py",
+            "game/README.txt"
+          )
+          foreach ($path in $required) {
+            if ($entries -notcontains $path) {
+              throw "Required archive entry is missing: $path"
+            }
+          }
+          if (-not ($entries | Where-Object { $_ -like "bin/glshaders/*" })) {
+            throw "The bundled DOSBox-X glshaders tree is missing."
+          }
+
+          $forbiddenPatterns = @(
+            "*/joystick.conf",
+            "*/renderer_debug.log",
+            "*/frame_timing.log",
+            "*/dosbox-x.log",
+            "*/__pycache__/*",
+            "*.pyc",
+            "*.pyo",
+            ".venv/python-home/Doc/*",
+            ".venv/python-home/Lib/test/*",
+            ".venv/python-home/Scripts/uv.exe",
+            ".venv/python-home/python-*-amd64.exe",
+            ".git/*",
+            ".github/*",
+            "docs/*",
+            "perf-results/*"
+          )
+          foreach ($pattern in $forbiddenPatterns) {
+            $matches = @($entries | Where-Object { $_ -like $pattern })
+            if ($matches.Count -gt 0) {
+              throw "Forbidden archive content matched '$pattern': $($matches -join ', ')"
+            }
+          }
+          $unexpectedGameFiles = @($entries | Where-Object {
+            $_ -like "game/*" -and $_ -notin @("game/", "game/README.txt", "game/c_mech2/", "game/c_mech2/mech2/")
+          })
+          if ($unexpectedGameFiles.Count -gt 0) {
+            throw "Unexpected files found under game/: $($unexpectedGameFiles -join ', ')"
+          }
+
+          $checksumPath = "$zipPath.sha256"
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $([System.IO.Path]::GetFileName($zipPath))" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+
+          Write-Output "Created $zipPath"
+          Write-Output "SHA-256 $hash"
+          Write-Output "Archive entries: $($entries.Count)"
+          Write-Output "Archive bytes: $((Get-Item -LiteralPath $zipPath).Length)"
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum_path=$checksumPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload workflow artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_tag == ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: "${{ steps.assemble.outputs.package_name }}"
+          path: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.checksum_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish beta release
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_tag != '')
+        shell: pwsh
+        env:
+          GH_TOKEN: "${{ github.token }}"
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseTag = if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $env:GITHUB_REF_NAME
+          } else {
+            "${{ inputs.publish_tag }}"
+          }
+          if ($releaseTag -ne "v$env:MOD_VERSION") {
+            throw "Release tag $releaseTag does not match VERSION $env:MOD_VERSION."
+          }
+
+          $zipAsset = "${{ steps.package.outputs.zip_path }}#Windows x64 self-contained package"
+          $checksumAsset = "${{ steps.package.outputs.checksum_path }}#SHA-256 checksum"
+          $notes = ".github\release-notes\v$env:MOD_VERSION.md"
+          $title = "MechWarrior 2 Enhanced Renderer Mod v$env:MOD_VERSION beta"
+
+          gh release view $releaseTag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $releaseTag $zipAsset $checksumAsset --clobber
+            gh release edit $releaseTag --prerelease --title $title --notes-file $notes
+          } else {
+            gh release create $releaseTag $zipAsset $checksumAsset `
+              --verify-tag `
+              --prerelease `
+              --title $title `
+              --notes-file $notes
+          }

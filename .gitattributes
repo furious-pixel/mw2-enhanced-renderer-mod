@@ -1,0 +1,6 @@
+# Enforce LF checkout/commit for the whole repo.
+* text=auto eol=lf
+
+# Windows scripts still use LF in git; they run fine in cmd.exe/PowerShell.
+*.bat text eol=lf
+*.ps1 text eol=lf
