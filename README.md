@@ -19,6 +19,8 @@ input only) and a handful of bug fixes for issues that get in the way of
 playing. The MW2 shell (that is the non-mission interface) remains native,
 with a CRT shader making it more presentable on a modern display.
 
+**[Watch the v0.9.0 showcase video (MP4, 18 MB)](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/v0.9.0/mw2-EnhancedRendererModv0.9.mp4)**
+
 ## Highlights
 
 ![Native and enhanced renderers showing the same dropship and mech scene side by side](media/native-vs-enhanced-dropship-mech.png)
