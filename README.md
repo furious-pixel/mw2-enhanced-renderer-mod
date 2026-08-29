@@ -19,8 +19,6 @@ input only) and a handful of bug fixes for issues that get in the way of
 playing. The MW2 shell (that is the non-mission interface) remains native,
 with a CRT shader making it more presentable on a modern display.
 
-<!-- Showcase video: add the release-asset link here after publication. -->
-
 ## Highlights
 
 ![Native and enhanced renderers showing the same dropship and mech scene side by side](media/native-vs-enhanced-dropship-mech.png)
@@ -68,8 +66,6 @@ wireframe layout is on the right.*
   timing-related LRM and audio problems.
 - A fix for jump-jet fuel failing to recharge correctly at higher frame rates.
 
-<!-- Media candidate: outdoor scene showing depth, fog, lighting, terrain, and effects. -->
-
 ## More detail
 
 ### Cockpit and HUD
@@ -102,8 +98,6 @@ The enhanced HUD faithfully reproduces the cockpit startup and shutdown
 sequences, the animated damage display, interference on damaged video feeds,
 and the damaged satellite uplink's animated glitches.
 
-<!-- Media candidate: widescreen cockpit image with the enhanced HUD and an active target. -->
-
 ### Cameras, radar, satellite view, and enhanced imaging
 
 The rear camera is mirrored by default, like a vehicle mirror, and the target
@@ -117,8 +111,6 @@ and other billboards textured and colorful instead of using placeholder
 geometry which ruins immersion. HUD camera panes remain normally rendered
 while enhanced imaging is active, and the original radial scan reveal is
 retained.
-
-<!-- Media candidate: paired satellite-radar and enhanced-imaging screenshots. -->
 
 ### Presentation modes and smoother frame pacing
 
@@ -141,8 +133,6 @@ You can switch presentation at any time:
 The enhanced renderer uses the same brightness setting as the native renderer,
 controlled by the brightness slider in the in-mission Escape menu.
 
-<!-- Media candidate: short loop toggling native, enhanced, and side-by-side views. -->
-
 ## Configuration
 
 Run `configure.bat` to edit the renderer, HUD, and HOTAS axis settings, or edit
@@ -152,6 +142,11 @@ not built in; use a tool such as Joystick Gremlin to map buttons to MechWarrior
 2 keyboard controls. Joystick input remains disabled until axes are configured.
 
 ## Installing
+
+Download the
+[v0.9.0 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.0)
+and its
+[SHA-256 checksum](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/v0.9.0/mw2-enhanced-renderer-mod-v0.9.0-windows-x64.zip.sha256).
 
 The release is intended to be self-contained. It includes the mod, its Python
 runtime and dependencies, and the required
