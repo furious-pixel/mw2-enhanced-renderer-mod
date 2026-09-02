@@ -5,9 +5,12 @@ from pathlib import Path
 SHADER_ROOT = Path(__file__).resolve().parent.parent / "shaders"
 _UNRESOLVED_TOKEN = re.compile(r"@[A-Z][A-Z0-9_]*@")
 _SHARED_SUBSTITUTIONS = {
+    "INDEXED_TEXMAP_FUNCTIONS": (
+        SHADER_ROOT / "indexed_texmap_common.glsl"
+    ).read_text(encoding="utf-8"),
     "SCENE_LIGHTING_FUNCTIONS": (
         SHADER_ROOT / "scene_lighting.glsl"
-    ).read_text(encoding="utf-8")
+    ).read_text(encoding="utf-8"),
 }
 
 
@@ -26,10 +29,11 @@ def load_shader(filename, substitutions=None):
     return source
 
 
-def load_program(ctx, name, substitutions=None):
+def load_program(ctx, name, substitutions=None, *, vertex_name=None):
+    vertex_name = vertex_name or name
     try:
         return ctx.program(
-            vertex_shader=load_shader(f"{name}.vert", substitutions),
+            vertex_shader=load_shader(f"{vertex_name}.vert", substitutions),
             fragment_shader=load_shader(f"{name}.frag", substitutions),
         )
     except Exception as error:

@@ -48,12 +48,25 @@ _RENDER_RESOURCE_NAMES = (
     "blit_vao", "blit_buffer", "font_renderer",
     "gradient_mesh", "sky_mesh",
     "blit_program", "textured_program", "indexed_texmap_program",
+    "camo_texmap_program", "rotor_program",
     "mode4_program", "geometry_program", "indexed_geometry_program",
     "wireframe_occluder_program", "sky_program", "palette_texture",
     "scene_fbo", "scene_present_fbo", "scene_depth", "scene_texture",
     "scene_present_texture", "overlay_fbo", "overlay_texture",
     "overlay_present_fbo", "overlay_present_texture",
 )
+
+
+def _configure_indexed_texmap_program(program):
+    program["u_palette"].value = 0
+    program["u_indexed_texture"].value = 1
+    program["u_primitive_lighting"].value = 2
+    program["u_remap_kind"].value = 0
+    program["u_dark_ratio"].value = (0.0, 0.0, 0.0)
+    program["u_fog_terminal_color"].value = (0.0, 0.0, 0.0)
+    program["u_s8_ratio"].value = (0.0, 0.0, 0.0)
+    program["u_uv_scale"].value = (1.0, 1.0)
+
 
 class RendererResources:
     def __init__(
@@ -291,22 +304,24 @@ class RendererResources:
         self.textured_program["u_palette"].value = 0
         self.textured_program["u_indexed_texture"].value = 1
         self.indexed_texmap_program = load_program(self.ctx, "indexed_texmap")
-        self.indexed_texmap_program["u_palette"].value = 0
-        self.indexed_texmap_program["u_indexed_texture"].value = 1
-        self.indexed_texmap_program["u_primitive_lighting"].value = 2
-        self.indexed_texmap_program["u_remap_kind"].value = 0
-        self.indexed_texmap_program["u_dark_ratio"].value = (0.0, 0.0, 0.0)
-        self.indexed_texmap_program["u_fog_terminal_color"].value = (
-            0.0,
-            0.0,
-            0.0,
+        self.camo_texmap_program = load_program(
+            self.ctx,
+            "camo_texmap",
+            vertex_name="indexed_texmap",
         )
-        self.indexed_texmap_program["u_s8_ratio"].value = (0.0, 0.0, 0.0)
-        self.indexed_texmap_program["u_uv_scale"].value = (1.0, 1.0)
-        self.indexed_texmap_program["u_texture_role"].value = 0
-        self.indexed_texmap_program["u_texture_size"].value = (1, 1)
-        self.indexed_texmap_program["u_rotor_enhanced"].value = 0
-        self.indexed_texmap_program["u_rotor_texture_size"].value = (1, 1)
+        self.rotor_program = load_program(
+            self.ctx,
+            "rotor",
+            vertex_name="indexed_texmap",
+        )
+        for program in (
+            self.indexed_texmap_program,
+            self.camo_texmap_program,
+            self.rotor_program,
+        ):
+            _configure_indexed_texmap_program(program)
+        self.camo_texmap_program["u_texture_size"].value = (1, 1)
+        self.rotor_program["u_texture_size"].value = (1, 1)
         self.blit_program = load_program(self.ctx, "blit")
         self.blit_program["u_scene"].value = 0
         self.blit_program["u_overlay"].value = 1
@@ -321,6 +336,7 @@ class RendererResources:
                 self.mode4_program,
                 self.textured_program,
                 self.indexed_texmap_program,
+                self.rotor_program,
             )
             for name in (
                 "static",

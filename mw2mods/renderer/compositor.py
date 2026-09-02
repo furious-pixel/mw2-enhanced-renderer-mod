@@ -20,12 +20,16 @@ def resize(resources, viewport_width, viewport_height):
 
 def _create_scene_target(resources):
     _release_scene_target(resources)
-    use_ssaa = (
-        resources.requested_antialiasing == "ssaa_4x"
-        and not resources.ssaa_creation_failed
-    )
-    if use_ssaa:
-        _set_scene_sample_scale(resources, 2, "ssaa_4x")
+    sample_scale = {
+        "ssaa_4x": 2,
+        "ssaa_16x": 4,
+    }.get(resources.requested_antialiasing, 1)
+    if sample_scale > 1 and not resources.ssaa_creation_failed:
+        _set_scene_sample_scale(
+            resources,
+            sample_scale,
+            resources.requested_antialiasing,
+        )
         try:
             _allocate_scene_target(resources)
         except Exception as error:
@@ -46,7 +50,7 @@ def fallback_from_ssaa(resources, error):
     resources.antialiasing_fallback_reason = type(error).__name__
     _set_scene_sample_scale(resources, 1, "none")
     print(
-        "MOD: MW2 renderer 4x SSAA target creation failed; "
+        "MOD: MW2 renderer SSAA target creation failed; "
         "falling back to none "
         f"error={type(error).__name__}:{error}",
         flush=True,
@@ -287,6 +291,11 @@ def composite_to_viewport(
     x, y, width, height = [int(value) for value in viewport]
     if width <= 0 or height <= 0:
         return
+    if resources.scene_sample_scale > 2:
+        raise RuntimeError(
+            "MW2 renderer compositor only supports 4x SSAA: its current "
+            "resolve is a 2x2 downsample, so 16x SSAA is scene-target-only"
+        )
 
     if loading_screen is not None:
         _composite_loading_screen(resources, viewport, loading_screen)

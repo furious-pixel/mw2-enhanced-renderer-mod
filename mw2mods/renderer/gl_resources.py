@@ -160,8 +160,10 @@ class DynamicIndexedMesh:
         self.primitive_texture = None
         self.primitive_texture_width = 0
         self.vao = None
+        self.index_element_size = 2
 
     def update(self, vertices, indices, primitive_data):
+        self.index_element_size = 2
         self.vertex_count = len(vertices) // self.vertex_floats
         self.index_count = len(indices)
         self.primitive_count = len(primitive_data)
@@ -191,18 +193,14 @@ class DynamicIndexedMesh:
             self.vertex_buffer = self.ctx.buffer(reserve=self.vertex_capacity)
             self.owns_vertex_buffer = True
             self.index_buffer = self.ctx.buffer(reserve=self.index_capacity)
-            self.vao = self.ctx.vertex_array(
-                self.program,
-                [(self.vertex_buffer, self.vertex_format, "in_pos", *self.attributes)],
-                index_buffer=self.index_buffer,
-                index_element_size=2,
-            )
+            self._create_vao()
 
         _replace_buffer_data(self.vertex_buffer, vertex_data)
         _replace_buffer_data(self.index_buffer, index_data)
         self._update_primitive_texture(primitive_data)
 
     def update_shared(self, vertex_buffer, vertex_count, indices, primitive_data):
+        self.index_element_size = 4
         self.vertex_count = int(vertex_count)
         self.index_count = len(indices)
         self.primitive_count = len(primitive_data)
@@ -229,15 +227,33 @@ class DynamicIndexedMesh:
             self.owns_vertex_buffer = False
             self.index_capacity = _buffer_capacity(index_data.nbytes)
             self.index_buffer = self.ctx.buffer(reserve=self.index_capacity)
-            self.vao = self.ctx.vertex_array(
-                self.program,
-                [(self.vertex_buffer, self.vertex_format, "in_pos", *self.attributes)],
-                index_buffer=self.index_buffer,
-                index_element_size=4,
-            )
+            self._create_vao()
 
         _replace_buffer_data(self.index_buffer, index_data)
         self._update_primitive_texture(primitive_data)
+
+    def set_program(self, program):
+        if self.program is program:
+            return
+        self.program = program
+        if self.vao is not None:
+            self.vao.release()
+            self.vao = None
+        if self.vertex_buffer is not None and self.index_buffer is not None:
+            self._create_vao()
+
+    def _create_vao(self):
+        self.vao = self.ctx.vertex_array(
+            self.program,
+            [(
+                self.vertex_buffer,
+                self.vertex_format,
+                "in_pos",
+                *self.attributes,
+            )],
+            index_buffer=self.index_buffer,
+            index_element_size=self.index_element_size,
+        )
 
     def _update_primitive_texture(self, primitive_data):
         self.primitive_texture, self.primitive_texture_width = (
@@ -552,10 +568,12 @@ class DynamicGeometryResources:
         mode4_program,
         textured_program,
         indexed_texmap_program,
+        rotor_program,
     ):
         self.ctx = ctx
         self.textured_program = textured_program
         self.indexed_texmap_program = indexed_texmap_program
+        self.rotor_program = rotor_program
         self.dynamic_triangle_mesh = DynamicMesh(
             ctx,
             geometry_program,

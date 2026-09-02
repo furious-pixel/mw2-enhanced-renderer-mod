@@ -252,7 +252,7 @@ def _sync_rotor_meshes(resources, batches):
         meshes.append(
             DynamicIndexedMesh(
                 resources.ctx,
-                resources.indexed_texmap_program,
+                resources.rotor_program,
                 "u_primitive_lighting",
                 attributes=("in_uv",),
                 vertex_format=INDEXED_TEXMAP_VERTEX_FORMAT,
@@ -509,7 +509,12 @@ def _write_camera_uniforms(resources, camera, projection, *programs):
 def _write_fog_uniforms(resources, fog_distance_world):
     fog_distance = float(fog_distance_world)
     resources.mode4_program["u_fog_distance"].value = fog_distance
-    resources.indexed_texmap_program["u_fog_distance"].value = fog_distance
+    for program in (
+        resources.indexed_texmap_program,
+        resources.camo_texmap_program,
+        resources.rotor_program,
+    ):
+        program["u_fog_distance"].value = fog_distance
 
 
 def render_scene(resources, snapshot, clear_color, timings):
@@ -944,6 +949,8 @@ def _draw_geometry_to_scene(
         resources.mode4_program,
         resources.textured_program,
         resources.indexed_texmap_program,
+        resources.camo_texmap_program,
+        resources.rotor_program,
     )
     fade_start = float((wireframe_fade or {}).get("start", 0.0))
     fade_end = float((wireframe_fade or {}).get("end", 0.0))
@@ -1080,6 +1087,7 @@ def _draw_enhanced_imaging_effects(
             projection,
             resources.textured_program,
             resources.indexed_texmap_program,
+            resources.camo_texmap_program,
         )
         _write_fog_uniforms(resources, fog_distance_world)
         resources.textured_program["u_viewport_size"].value = tuple(
@@ -1187,7 +1195,6 @@ def _draw_indexed_texmap_mesh_dict(
     active_texture_descs,
     animated_effects=None,
 ):
-    resources.indexed_texmap_program["u_rotor_enhanced"].value = 0
     for desc_idx, mesh in meshes.items():
         entry = _active_indexed_texture(
             resources,
@@ -1208,12 +1215,14 @@ def _draw_indexed_texmap_mesh_dict(
         texture = entry.get("texture")
         if texture is None:
             continue
+        program = _indexed_texmap_program(resources, entry)
+        mesh.set_program(program)
         _write_indexed_texmap_texture(
-            resources.indexed_texmap_program,
+            program,
             entry,
         )
         _write_indexed_texmap_material(
-            resources.indexed_texmap_program,
+            program,
             entry,
         )
         texture.use(location=1)
@@ -1260,14 +1269,14 @@ def _draw_rotor_meshes(resources, dynamic_resources, camera):
         else:
             enhanced_meshes.append((mesh, entry))
 
-    program = resources.indexed_texmap_program
-    program["u_rotor_enhanced"].value = 0
     for mesh, entry in fallback_meshes:
         texture = entry.get("texture")
         width = int(entry.get("width") or 0)
         height = int(entry.get("height") or 0)
         if texture is None or width <= 0 or height <= 0:
             continue
+        program = _indexed_texmap_program(resources, entry)
+        mesh.set_program(program)
         _write_indexed_texmap_texture(program, entry)
         _write_indexed_texmap_material(program, entry)
         texture.use(location=1)
@@ -1292,9 +1301,7 @@ def _draw_rotor_meshes(resources, dynamic_resources, camera):
         moderngl.ONE_MINUS_SRC_ALPHA,
     )
     resources.ctx.depth_mask = False
-    program["u_rotor_enhanced"].value = 1
-    program["u_texture_role"].value = 0
-    program["u_uv_scale"].value = (1.0, 1.0)
+    program = resources.rotor_program
     try:
         for mesh, entry in sorted_meshes:
             texture = entry.get("texture")
@@ -1302,17 +1309,17 @@ def _draw_rotor_meshes(resources, dynamic_resources, camera):
             height = int(entry.get("height") or 0)
             if texture is None or width <= 0 or height <= 0:
                 continue
+            mesh.set_program(program)
             program["u_uv_scale"].value = (
                 (1.0, 1.0)
                 if mesh.rotor_normalized_uv
                 else (1.0 / width, 1.0 / height)
             )
-            program["u_rotor_texture_size"].value = (width, height)
+            program["u_texture_size"].value = (width, height)
             _write_indexed_texmap_material(program, entry)
             texture.use(location=1)
             mesh.render()
     finally:
-        program["u_rotor_enhanced"].value = 0
         resources.ctx.depth_mask = True
         resources.ctx.disable(moderngl.BLEND)
 
@@ -1330,12 +1337,18 @@ def _write_indexed_texmap_material(program, entry):
     )
 
 
+def _indexed_texmap_program(resources, entry):
+    if int(entry.get("enhancement_role_id", 0)) == 1:
+        return resources.camo_texmap_program
+    return resources.indexed_texmap_program
+
+
 def _write_indexed_texmap_texture(program, entry):
     width = max(1, int(entry.get("width") or 1))
     height = max(1, int(entry.get("height") or 1))
     role_id = int(entry.get("enhancement_role_id", 0))
-    program["u_texture_role"].value = role_id
-    program["u_texture_size"].value = (width, height)
+    if role_id == 1:
+        program["u_texture_size"].value = (width, height)
     if role_id:
         scale = float(entry.get("enhanced_uv_scale", 1.0))
         program["u_uv_scale"].value = (
