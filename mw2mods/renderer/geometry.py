@@ -38,13 +38,13 @@ from .geometry_numba import (
     count_mode57_block_desc_entries,
     decode_geometry_vertex_asset,
     fill_mode57_block_desc_entries,
-    fill_mode57_grouped_indices_and_contribution,
+    fill_mode57_grouped_indices_and_lighting,
     fill_mode57_grouped_vertices,
-    fill_mode57_shared_indices_and_contribution,
+    fill_mode57_shared_indices_and_lighting,
     fill_mode57_shared_vertices,
-    update_mode57_grouped_contribution,
+    update_mode57_grouped_lighting,
     update_mode57_grouped_vertices,
-    update_mode57_shared_contribution,
+    update_mode57_shared_lighting,
     update_mode57_shared_vertices,
     update_mode4_vertices,
     update_indexed_flat_palettes,
@@ -68,12 +68,13 @@ from .geometry_numba import (
 ADDR_NODE_LIST_HEADER = 0x00104580
 ADDR_MODEL_TREE_ROOT_A = 0x000A55B0
 ADDR_MODEL_TREE_ROOT_B = 0x000A55B4
-ADDR_LIGHT_Z = 0x0015FFD0
-ADDR_LIGHT_DIR_FLAG = 0x0015FDC8
-ADDR_FOG_MIN = 0x0015FDCC
-ADDR_LIGHT_X = 0x0015FFD8
-ADDR_LIGHT_Y = 0x0015FFDC
+ADDR_SCENE_LIGHT_Z = 0x0015FFD0
+ADDR_SCENE_LIGHT_IS_DIRECTIONAL = 0x0015FDC8
+ADDR_AMBIENT = 0x0015FDCC
+ADDR_SCENE_LIGHT_X = 0x0015FFD8
+ADDR_SCENE_LIGHT_Y = 0x0015FFDC
 ADDR_FOG_DISTANCE = 0x000A7130
+ADDR_COMPONENT_LIGHTING_MODE = 0x000A6F88
 ADDR_ENTITY_BODY_TABLE = 0x00108B00
 ADDR_ENTITY_COUNT = 0x000A6270
 ADDR_PRIMARY_CLASSIFICATION = 0x0010B631
@@ -150,7 +151,7 @@ GEOMETRY_SOURCE_RENDERER_LOD = 3
 MODE4_EMISSIVE_C_IN_THRESHOLD = 0x30
 STATIC_CACHE_SCHEMA = 9
 WIREFRAME_DEFAULT_PALETTE_INDEX = 0x08
-TARGET_POST_LIGHT_POLICY = 0x0B00
+TARGET_FLAT_MATERIAL_CLASS_MASK = 0x0B00
 TARGET_MECH_LIGHTING_SCALE = 0xA0
 TARGET_OTHER_LIGHTING_SCALE = 0xD0
 PRIMARY_CLASSIFICATION_SLOTS = 16
@@ -175,6 +176,7 @@ POLY_VERTEX_DTYPE = np.dtype(
     [("position", "<i4", (3,)), ("uv", "<i2", (2,))]
 )
 SATELLITE_NO_FOG_DISTANCE = 1 << 60
+CONTINUOUS_LIGHTING_POLICY_PACK_SCALE = 4096.0
 ROTOR_DISC_SOURCE_VERTICES = 14
 ROTOR_DISC_SOURCE_FACES = 2
 ROTOR_DISC_SOURCE_FACE_VERTICES = 7
@@ -218,7 +220,7 @@ class GeometryPartition:
     indexed_texmap_shared_vertices: array = field(default_factory=_FLOAT_ARRAY)
     indexed_texmap_vertices: dict = field(default_factory=dict)
     indexed_texmap_indices: dict = field(default_factory=dict)
-    indexed_texmap_primitive_contribution: dict = field(default_factory=dict)
+    indexed_texmap_primitive_lighting: dict = field(default_factory=dict)
     rotor_batches: list = field(default_factory=list)
 
 @dataclass(slots=True, eq=False, repr=False)
@@ -268,6 +270,7 @@ class GeometryBuildState:
         "satellite_iff_cache",
         "target_owner_class_cache",
         "wireframe_owner_palette_cache",
+        "component_lighting_cache",
         "terrain_block_deltas",
         "lod_descriptor_snapshot",
         "entity_lod_store",
@@ -391,6 +394,7 @@ class GeometryBuildState:
         self.satellite_iff_cache = {}
         self.target_owner_class_cache = {}
         self.wireframe_owner_palette_cache = {}
+        self.component_lighting_cache = {}
         self.terrain_block_deltas = (
             terrain_level_deltas(camera.get("mission_name"))
             if camera.get("reduce_terrain_gaps")
@@ -906,6 +910,13 @@ def _append_rotor_outline(vertices, rim, palette_index):
         _append_geometry_vertex(vertices, rim[next_index], palette_index)
 
 
+def _pack_continuous_lighting_state(lit_shade_before_fog, component_policy):
+    return (
+        float(component_policy) * CONTINUOUS_LIGHTING_POLICY_PACK_SCALE
+        + float(lit_shade_before_fog)
+    )
+
+
 def _emit_rotor_disc(
     source_faces,
     view_faces,
@@ -913,6 +924,7 @@ def _emit_rotor_disc(
     lighting,
     buffers,
     texture_requests,
+    component_policies,
     *,
     outline_only,
     outline_palette,
@@ -920,7 +932,7 @@ def _emit_rotor_disc(
 ):
     view_by_id = {int(face[0]): face for face in view_faces}
     emitted_outline = False
-    for source_face in source_faces:
+    for source_face, component_policy in zip(source_faces, component_policies):
         face_id = int(source_face[0])
         view_face = view_by_id.get(face_id, source_face)
         indices = tuple(int(index) for index in source_face[3])
@@ -954,7 +966,7 @@ def _emit_rotor_disc(
         texture_requests.add(desc_idx)
         vertices = array("f")
         indices_out = array("H")
-        contribution = array("f")
+        primitive_lighting = array("f")
         vertices.extend(
             (
                 float(center[0]) / FIXED_16_16_SCALE,
@@ -976,16 +988,20 @@ def _emit_rotor_disc(
                     0.5 + ROTOR_DISC_UV_RADIUS * math.sin(angle),
                 )
             )
-        light_contribution = float(
+        lit_shade_before_fog = float(
             _compute_face_light_level(
                 source_face[4],
                 world_vertices,
                 indices,
                 lighting,
-                base_color=0xFF,
+                material_light_scale=0xFF,
                 include_fog=False,
                 continuous=True,
             )
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            component_policy,
         )
         for index in range(ROTOR_DISC_SEGMENTS):
             indices_out.extend(
@@ -995,7 +1011,7 @@ def _emit_rotor_disc(
                     ((index + 1) % ROTOR_DISC_SEGMENTS) + 1,
                 )
             )
-            contribution.append(light_contribution)
+            primitive_lighting.append(lighting_state)
         buffers.rotor_batches.append(
             {
                 "effect": "heli_rotor",
@@ -1006,7 +1022,7 @@ def _emit_rotor_disc(
                 "normalized_uv": True,
                 "vertices": vertices,
                 "indices": indices_out,
-                "contribution": contribution,
+                "lighting": primitive_lighting,
             }
         )
 
@@ -1035,6 +1051,7 @@ def _emit_aero_lift_fan_batch(
     lighting,
     buffers,
     texture_requests,
+    component_policies,
 ):
     if not faces:
         return
@@ -1053,7 +1070,7 @@ def _emit_aero_lift_fan_batch(
     }
     vertices = array("f")
     indices_out = array("H")
-    contribution = array("f")
+    primitive_lighting = array("f")
     center = np.mean(
         np.asarray(
             [world_vertices[index] for index in used_indices],
@@ -1073,22 +1090,26 @@ def _emit_aero_lift_fan_batch(
                 float(uv[1]),
             )
         )
-    for face in faces:
+    for face, component_policy in zip(faces, component_policies):
         face_indices = tuple(int(index) for index in face[3])
-        light_contribution = float(
+        lit_shade_before_fog = float(
             _compute_face_light_level(
                 face[4],
                 world_vertices,
                 face_indices,
                 lighting,
-                base_color=0xFF,
+                material_light_scale=0xFF,
                 include_fog=False,
                 continuous=True,
             )
         )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            component_policy,
+        )
         for triangle in _triangle_fan_indices(face_indices):
             indices_out.extend(vertex_remap[index] for index in triangle)
-            contribution.append(light_contribution)
+            primitive_lighting.append(lighting_state)
     if not indices_out:
         return
     desc_idx = _mode57_texture_desc_index(faces[0][1])
@@ -1103,7 +1124,7 @@ def _emit_aero_lift_fan_batch(
             "normalized_uv": False,
             "vertices": vertices,
             "indices": indices_out,
-            "contribution": contribution,
+            "lighting": primitive_lighting,
         }
     )
 
@@ -1848,6 +1869,13 @@ def _extract_node_fields(
             node_lighting,
             target_buffers,
             state.texture_requests,
+            _component_policies_for_faces(
+                gamemem,
+                state,
+                topology,
+                aero_lift_fan_faces,
+                owner_addr_override,
+            ),
         )
     if rotor_source_faces:
         outline_palette = None
@@ -1871,6 +1899,13 @@ def _extract_node_fields(
             node_lighting,
             target_buffers,
             state.texture_requests,
+            _component_policies_for_faces(
+                gamemem,
+                state,
+                topology,
+                rotor_source_faces,
+                owner_addr_override,
+            ),
             outline_only=bool(
                 state.satellite_view
                 or state.wireframe_only
@@ -1954,6 +1989,9 @@ def _extract_node_fields(
             build_uncached_wireframe,
             state.wireframe_only,
             state.satellite_view,
+            gamemem=gamemem,
+            state=state,
+            owner_addrs_override=owner_addrs_override,
         )
         if deferred_other_faces is not None:
             ordinary_faces_for_node = deferred_other_faces
@@ -2725,6 +2763,66 @@ def _owner_class(gamemem, owner_addr, cache):
     return int(owner_class)
 
 
+def _component_lighting_policy(gamemem, state, owner_addr):
+    """Return 0, damage 1..15 toward shade 0, or 16..30 toward shade 15."""
+    owner_addr = int(owner_addr)
+    cached = state.component_lighting_cache.get(owner_addr)
+    if cached is not None:
+        return int(cached)
+    if owner_addr == 0:
+        policy = 0
+    else:
+        owner_head = gamemem.read_runtime_bytes(owner_addr, 4)
+        component_state = _u16(owner_head, 0x00)
+        owner_class_flags = _u16(owner_head, 0x02)
+        component_damage = (component_state & 0x00F0) >> 4
+        eligible = (
+            (owner_class_flags & 0x0100) != 0
+            or (owner_class_flags & 0x00F0) == 0x0050
+        )
+        policy = component_damage if eligible else 0
+        if policy and int(state.lighting["component_lighting_mode"]) != 0:
+            policy += 15
+    state.component_lighting_cache[owner_addr] = int(policy)
+    return int(policy)
+
+
+def _component_policies_for_plan(
+    gamemem,
+    state,
+    plan,
+    owner_addrs_override=None,
+):
+    owner_addrs = owner_addrs_override or plan.owner_addrs
+    policies = tuple(
+        _component_lighting_policy(gamemem, state, owner_addr)
+        for owner_addr in owner_addrs
+    )
+    return policies or (0,)
+
+
+def _component_policies_for_faces(
+    gamemem,
+    state,
+    topology,
+    faces,
+    owner_addr_override=None,
+):
+    owner_addrs = topology.get("wireframe_owner_addrs", {})
+    return tuple(
+        _component_lighting_policy(
+            gamemem,
+            state,
+            (
+                int(owner_addr_override)
+                if owner_addr_override is not None
+                else int(owner_addrs.get(int(face[0]), 0))
+            ),
+        )
+        for face in faces
+    )
+
+
 def _target_flat_presentation_topology(
     gamemem,
     topology,
@@ -2822,6 +2920,7 @@ def _compiled_deferred_adapter(topology, plan):
         dtype=np.uint16,
     )
     indexed_normals = np.empty((indexed_count, 3), dtype=np.int64)
+    indexed_owner_slots = np.empty(indexed_count, dtype=np.uint16)
     indexed_face_indices = np.empty(indexed_count, dtype=np.int32)
     mode4_flags = np.empty(mode4_count, dtype=np.int64)
     mode4_counts = np.empty(mode4_count, dtype=np.uint8)
@@ -2830,6 +2929,7 @@ def _compiled_deferred_adapter(topology, plan):
         dtype=np.uint16,
     )
     mode4_normals = np.empty((mode4_count, 3), dtype=np.int64)
+    mode4_owner_slots = np.empty(mode4_count, dtype=np.uint16)
     mode4_face_indices = np.empty(mode4_count, dtype=np.int32)
     mode3_descs = np.empty(mode3_count, dtype=np.int16)
     mode3_counts = np.empty(mode3_count, dtype=np.uint8)
@@ -2844,6 +2944,7 @@ def _compiled_deferred_adapter(topology, plan):
         dtype=np.uint16,
     )
     mode57_normals = np.empty((mode57_count, 3), dtype=np.int64)
+    mode57_owner_slots = np.empty(mode57_count, dtype=np.uint16)
     mode57_face_indices = np.empty(mode57_count, dtype=np.int32)
     other_faces = [None] * other_count
 
@@ -2861,6 +2962,7 @@ def _compiled_deferred_adapter(topology, plan):
         count = int(plan.face_counts[row])
         indices = plan.face_indices[row]
         normal = plan.face_normals[row]
+        owner_slot = plan.face_owner_slots[row]
         if count < 3 or mode == MODE_POLYLINE:
             other_faces[other_pos] = faces[row]
             other_pos += 1
@@ -2871,6 +2973,7 @@ def _compiled_deferred_adapter(topology, plan):
             indexed_counts[indexed_pos] = count
             indexed_indices[indexed_pos, :count] = indices[:count]
             indexed_normals[indexed_pos] = normal
+            indexed_owner_slots[indexed_pos] = owner_slot
             indexed_face_indices[indexed_pos] = face_index
             indexed_pos += 1
         elif mode == MODE_BILLBOARD:
@@ -2886,6 +2989,7 @@ def _compiled_deferred_adapter(topology, plan):
             mode57_counts[mode57_pos] = count
             mode57_indices[mode57_pos, :count] = indices[:count]
             mode57_normals[mode57_pos] = normal
+            mode57_owner_slots[mode57_pos] = owner_slot
             mode57_face_indices[mode57_pos] = face_index
             texture_requests.add(desc_idx)
             mode57_pos += 1
@@ -2894,6 +2998,7 @@ def _compiled_deferred_adapter(topology, plan):
             mode4_counts[mode4_pos] = count
             mode4_indices[mode4_pos, :count] = indices[:count]
             mode4_normals[mode4_pos] = normal
+            mode4_owner_slots[mode4_pos] = owner_slot
             mode4_face_indices[mode4_pos] = face_index
             mode4_pos += 1
 
@@ -2906,6 +3011,7 @@ def _compiled_deferred_adapter(topology, plan):
             indexed_normals,
         ),
         "indexed_face_indices": indexed_face_indices,
+        "indexed_owner_slots": indexed_owner_slots,
         "mode4": (
             mode4_flags,
             mode4_counts,
@@ -2913,6 +3019,7 @@ def _compiled_deferred_adapter(topology, plan):
             mode4_normals,
         ),
         "mode4_face_indices": mode4_face_indices,
+        "mode4_owner_slots": mode4_owner_slots,
         "mode3": (mode3_descs, mode3_counts, mode3_indices),
         "mode3_groups": _build_mode3_groups(mode3_descs),
         "mode57": (
@@ -2922,6 +3029,7 @@ def _compiled_deferred_adapter(topology, plan):
             mode57_normals,
         ),
         "mode57_face_indices": mode57_face_indices,
+        "mode57_owner_slots": mode57_owner_slots,
         "texture_requests": tuple(sorted(texture_requests)),
         "other_faces": tuple(other_faces),
         "normal_generation": 0,
@@ -3435,6 +3543,10 @@ def _collect_cached_deferred_faces(
     build_wireframe,
     wireframe_only,
     satellite_view,
+    *,
+    gamemem=None,
+    state=None,
+    owner_addrs_override=None,
 ):
     if (
         wireframe_only
@@ -3445,6 +3557,17 @@ def _collect_cached_deferred_faces(
         return None
     plan = _compiled_mesh_plan(topology)
     batch = _compiled_deferred_adapter(topology, plan)
+    component_policies = (
+        _component_policies_for_plan(
+            gamemem,
+            state,
+            plan,
+            owner_addrs_override,
+        )
+        if gamemem is not None and state is not None
+        else (0,)
+    )
+    force_owner_slot_zero = bool(owner_addrs_override)
 
     texture_requests.update(batch["texture_requests"])
 
@@ -3478,6 +3601,9 @@ def _collect_cached_deferred_faces(
             (
                 world_vertices_np,
                 *indexed,
+                batch["indexed_owner_slots"],
+                component_policies,
+                force_owner_slot_zero,
                 int(batch.get("normal_generation", 0)),
             )
         )
@@ -3487,6 +3613,9 @@ def _collect_cached_deferred_faces(
                 world_vertices_np,
                 _c_in_u8_array(c_in_values, len(world_vertices_np)),
                 *mode4,
+                batch["mode4_owner_slots"],
+                component_policies,
+                force_owner_slot_zero,
                 int(batch.get("normal_generation", 0)),
             )
         )
@@ -3531,6 +3660,9 @@ def _collect_cached_deferred_faces(
                     len(mode57_world_vertices),
                 ),
                 *mode57,
+                batch["mode57_owner_slots"],
+                component_policies,
+                force_owner_slot_zero,
                 int(batch.get("normal_generation", 0)),
             )
         )
@@ -3829,16 +3961,18 @@ def _process_pending_indexed_flat_partition(
         buffers.indexed_primitive_palette = cached["primitive_palette"]
         return
 
-    light_np = np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64))
+    scene_light = np.ascontiguousarray(
+        np.asarray(lighting["scene_light"], dtype=np.int64)
+    )
     camera_position = np.ascontiguousarray(
         np.asarray(lighting["camera_position"], dtype=np.int64)
     )
     camera_forward = np.ascontiguousarray(
         np.asarray(lighting["camera_forward"], dtype=np.int64)
     )
-    light_directional = int(lighting["directional"])
-    fog_min = int(lighting["fog_min"])
-    fog_distance = max(1, int(lighting["fog_distance"]))
+    scene_light_is_directional = int(lighting["scene_light_is_directional"])
+    ambient = int(lighting["ambient"])
+    fog_distance = int(lighting["fog_distance"])
 
     (
         block_vertex_counts,
@@ -3879,6 +4013,12 @@ def _process_pending_indexed_flat_partition(
         block_face_offsets=block_face_offsets,
         normal_generations=normal_generations,
     )
+    (
+        face_owner_slots,
+        block_owner_offsets,
+        owner_component_policies,
+        component_policy_signatures,
+    ) = _pending_component_layout(pending, 1)
     for block_pos, record in enumerate(pending):
         block_has_mode1[block_pos] = int(
             any(int(mode) == MODE_FLAT_LIT for mode in record[1])
@@ -3908,13 +4048,16 @@ def _process_pending_indexed_flat_partition(
         face_counts,
         face_indices,
         face_normals,
+        face_owner_slots,
         face_triangle_offsets,
         block_world_offsets,
         block_world_offsets,
+        block_owner_offsets,
+        owner_component_policies,
         all_world,
-        light_np,
-        light_directional,
-        fog_min,
+        scene_light,
+        scene_light_is_directional,
+        ambient,
         fog_distance,
         camera_position,
         camera_forward,
@@ -3940,7 +4083,11 @@ def _process_pending_indexed_flat_partition(
             "face_counts": face_counts,
             "face_indices": face_indices,
             "face_normals": face_normals,
+            "face_owner_slots": face_owner_slots,
             "face_triangle_offsets": face_triangle_offsets,
+            "block_owner_offsets": block_owner_offsets,
+            "owner_component_policies": owner_component_policies,
+            "component_policy_signatures": component_policy_signatures,
             "vertex_values": vertex_values,
             "index_values": index_values,
             "primitive_palette": primitive_palette,
@@ -3953,6 +4100,9 @@ def _deferred_layout_signature(pending, face_slot):
         (
             record[0].dtype.str,
             *(id(record[slot]) for slot in range(face_slot, 6)),
+            id(record[6]),
+            len(record[7]),
+            bool(record[8]),
             len(record[0]),
             len(record[face_slot]),
         )
@@ -3960,12 +4110,62 @@ def _deferred_layout_signature(pending, face_slot):
     )
 
 
+def _pending_component_layout(pending, count_slot):
+    block_owner_offsets = np.empty(len(pending), dtype=np.int64)
+    total_faces = sum(len(record[count_slot]) for record in pending)
+    total_owners = sum(len(record[7]) for record in pending)
+    face_owner_slots = np.empty(total_faces, dtype=np.uint16)
+    owner_component_policies = np.empty(total_owners, dtype=np.uint8)
+    policy_signatures = []
+    face_pos = 0
+    owner_pos = 0
+    for block_pos, record in enumerate(pending):
+        face_end = face_pos + len(record[count_slot])
+        if bool(record[8]):
+            face_owner_slots[face_pos:face_end] = 0
+        else:
+            face_owner_slots[face_pos:face_end] = record[6]
+        face_pos = face_end
+
+        policies = tuple(int(value) for value in record[7])
+        owner_end = owner_pos + len(policies)
+        block_owner_offsets[block_pos] = owner_pos
+        owner_component_policies[owner_pos:owner_end] = policies
+        owner_pos = owner_end
+        policy_signatures.append(policies)
+    return (
+        face_owner_slots,
+        block_owner_offsets,
+        owner_component_policies,
+        policy_signatures,
+    )
+
+
+def _refresh_cached_component_policies(cached, pending, changed_blocks):
+    changed_count = 0
+    signatures = cached["component_policy_signatures"]
+    owner_offsets = cached["block_owner_offsets"]
+    owner_policies = cached["owner_component_policies"]
+    for block_pos, record in enumerate(pending):
+        current = tuple(int(value) for value in record[7])
+        if current == signatures[block_pos]:
+            continue
+        owner_start = int(owner_offsets[block_pos])
+        owner_end = owner_start + len(current)
+        owner_policies[owner_start:owner_end] = current
+        signatures[block_pos] = current
+        if changed_blocks[block_pos] == 0:
+            changed_blocks[block_pos] = 1
+            changed_count += 1
+    return changed_count
+
+
 def _indexed_flat_shading_key(lighting):
     return (
-        tuple(int(value) for value in lighting["light"]),
-        int(lighting["directional"]),
-        int(lighting["fog_min"]),
-        max(1, int(lighting["fog_distance"])),
+        tuple(int(value) for value in lighting["scene_light"]),
+        int(lighting["scene_light_is_directional"]),
+        int(lighting["ambient"]),
+        int(lighting["fog_distance"]),
         tuple(int(value) for value in lighting["camera_position"]),
         tuple(int(value) for value in lighting["camera_forward"]),
     )
@@ -4000,7 +4200,7 @@ def _update_cached_indexed_flat(cached, pending, lighting):
                 palette_changed[block_pos] = 1
                 palette_changed_count += 1
 
-        normal_generation = int(record[6])
+        normal_generation = int(record[-1])
         if int(normal_generations[block_pos]) != normal_generation:
             face_start = int(block_face_offsets[block_pos])
             face_end = int(block_face_offsets[block_pos + 1])
@@ -4009,6 +4209,12 @@ def _update_cached_indexed_flat(cached, pending, lighting):
             if block_has_mode1[block_pos] and not palette_changed[block_pos]:
                 palette_changed[block_pos] = 1
                 palette_changed_count += 1
+
+    palette_changed_count += _refresh_cached_component_policies(
+        cached,
+        pending,
+        palette_changed,
+    )
 
     if world_changed_count:
         update_indexed_flat_vertices(
@@ -4034,13 +4240,18 @@ def _update_cached_indexed_flat(cached, pending, lighting):
             cached["face_counts"],
             cached["face_indices"],
             face_normals,
+            cached["face_owner_slots"],
             cached["face_triangle_offsets"],
             block_world_offsets,
+            cached["block_owner_offsets"],
+            cached["owner_component_policies"],
             all_world,
-            np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64)),
-            int(lighting["directional"]),
-            int(lighting["fog_min"]),
-            max(1, int(lighting["fog_distance"])),
+            np.ascontiguousarray(
+                np.asarray(lighting["scene_light"], dtype=np.int64)
+            ),
+            int(lighting["scene_light_is_directional"]),
+            int(lighting["ambient"]),
+            int(lighting["fog_distance"]),
             np.ascontiguousarray(
                 np.asarray(lighting["camera_position"], dtype=np.int64)
             ),
@@ -4076,9 +4287,11 @@ def _process_pending_mode4_partition(
         )
         return
 
-    light_np = np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64))
-    light_directional = int(lighting["directional"])
-    fog_min = int(lighting["fog_min"])
+    scene_light = np.ascontiguousarray(
+        np.asarray(lighting["scene_light"], dtype=np.int64)
+    )
+    scene_light_is_directional = int(lighting["scene_light_is_directional"])
+    ambient = int(lighting["ambient"])
 
     (
         block_vertex_counts,
@@ -4118,6 +4331,12 @@ def _process_pending_mode4_partition(
         block_face_offsets=block_face_offsets,
         normal_generations=normal_generations,
     )
+    (
+        face_owner_slots,
+        block_owner_offsets,
+        owner_component_policies,
+        component_policy_signatures,
+    ) = _pending_component_layout(pending, 2)
 
     face_triangle_offsets = np.empty(total_faces, dtype=np.int64)
     total_triangles = int(
@@ -4137,13 +4356,16 @@ def _process_pending_mode4_partition(
         face_counts,
         face_indices,
         face_normals,
+        face_owner_slots,
         face_triangle_offsets,
         block_world_offsets,
+        block_owner_offsets,
+        owner_component_policies,
         all_world,
         all_c_in,
-        light_np,
-        light_directional,
-        fog_min,
+        scene_light,
+        scene_light_is_directional,
+        ambient,
     )
 
     buffers.mode4_vertices = vertex_values
@@ -4163,7 +4385,11 @@ def _process_pending_mode4_partition(
             "face_counts": face_counts,
             "face_indices": face_indices,
             "face_normals": face_normals,
+            "face_owner_slots": face_owner_slots,
             "face_triangle_offsets": face_triangle_offsets,
+            "block_owner_offsets": block_owner_offsets,
+            "owner_component_policies": owner_component_policies,
+            "component_policy_signatures": component_policy_signatures,
             "vertex_values": vertex_values,
             "lighting_key": _mode57_lighting_key(lighting),
         }
@@ -4192,7 +4418,7 @@ def _update_cached_mode4_vertices(cached, pending, lighting):
             changed_blocks[block_pos] = 1
             changed_count += 1
 
-        normal_generation = int(record[6])
+        normal_generation = int(record[-1])
         if int(normal_generations[block_pos]) != normal_generation:
             face_start = int(block_face_offsets[block_pos])
             face_end = int(block_face_offsets[block_pos + 1])
@@ -4201,6 +4427,12 @@ def _update_cached_mode4_vertices(cached, pending, lighting):
             if not changed_blocks[block_pos]:
                 changed_blocks[block_pos] = 1
                 changed_count += 1
+
+    changed_count += _refresh_cached_component_policies(
+        cached,
+        pending,
+        changed_blocks,
+    )
 
     lighting_key = _mode57_lighting_key(lighting)
     if lighting_key != cached["lighting_key"]:
@@ -4216,13 +4448,18 @@ def _update_cached_mode4_vertices(cached, pending, lighting):
             cached["face_counts"],
             cached["face_indices"],
             face_normals,
+            cached["face_owner_slots"],
             cached["face_triangle_offsets"],
             block_world_offsets,
+            cached["block_owner_offsets"],
+            cached["owner_component_policies"],
             all_world,
             cached["all_c_in"],
-            np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64)),
-            int(lighting["directional"]),
-            int(lighting["fog_min"]),
+            np.ascontiguousarray(
+                np.asarray(lighting["scene_light"], dtype=np.int64)
+            ),
+            int(lighting["scene_light_is_directional"]),
+            int(lighting["ambient"]),
             changed_blocks,
         )
 
@@ -4370,6 +4607,13 @@ def _build_mode57_grouped_buffers(
         normal_generations=normal_generations,
     )
 
+    (
+        face_owner_slots,
+        block_owner_offsets,
+        owner_component_policies,
+        component_policy_signatures,
+    ) = _pending_component_layout(pending, 2)
+
     block_desc_present = np.empty(
         (block_count, MODE57_DESC_TABLE_SIZE),
         dtype=np.uint8,
@@ -4452,46 +4696,54 @@ def _build_mode57_grouped_buffers(
         )
         emitted_indices = np.empty(total_triangles * 3, dtype=np.uint16)
 
-    emitted_contribution = np.empty(total_triangles, dtype=np.float32)
-    light = np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64))
+    emitted_lighting = np.empty(total_triangles, dtype=np.float32)
+    scene_light = np.ascontiguousarray(
+        np.asarray(lighting["scene_light"], dtype=np.int64)
+    )
     if shared_vertices:
-        fill_mode57_shared_indices_and_contribution(
+        fill_mode57_shared_indices_and_lighting(
             emitted_indices,
-            emitted_contribution,
+            emitted_lighting,
             face_block_indices,
             face_descs,
             face_counts,
             face_indices,
             face_normals,
+            face_owner_slots,
             face_primitive_offsets,
             block_world_offsets,
+            block_owner_offsets,
             desc_primitive_offsets,
+            owner_component_policies,
             all_world,
-            light,
-            int(lighting["directional"]),
-            int(lighting["fog_min"]),
+            scene_light,
+            int(lighting["scene_light_is_directional"]),
+            int(lighting["ambient"]),
         )
     else:
-        fill_mode57_grouped_indices_and_contribution(
+        fill_mode57_grouped_indices_and_lighting(
             emitted_indices,
-            emitted_contribution,
+            emitted_lighting,
             face_block_indices,
             face_descs,
             face_counts,
             face_indices,
             face_normals,
+            face_owner_slots,
             face_primitive_offsets,
             block_world_offsets,
             block_desc_vertex_offsets,
+            block_owner_offsets,
             desc_primitive_offsets,
+            owner_component_policies,
             all_world,
-            light,
-            int(lighting["directional"]),
-            int(lighting["fog_min"]),
+            scene_light,
+            int(lighting["scene_light_is_directional"]),
+            int(lighting["ambient"]),
         )
 
     grouped_indices = {}
-    grouped_contribution = {}
+    grouped_lighting = {}
     for desc_idx in range(MODE57_DESC_TABLE_SIZE):
         triangle_count = int(desc_triangle_counts[desc_idx])
         if triangle_count <= 0:
@@ -4509,13 +4761,13 @@ def _build_mode57_grouped_buffers(
         grouped_indices[desc_idx] = emitted_indices[
             primitive_start * 3:primitive_end * 3
         ]
-        grouped_contribution[desc_idx] = emitted_contribution[
+        grouped_lighting[desc_idx] = emitted_lighting[
             primitive_start:primitive_end
         ]
     grouped = (
         vertex_values if shared_vertices else grouped_vertices,
         grouped_indices,
-        grouped_contribution,
+        grouped_lighting,
         bool(shared_vertices),
     )
     if dynamic_batch_cache is not None:
@@ -4536,14 +4788,18 @@ def _build_mode57_grouped_buffers(
             "face_counts": face_counts,
             "face_indices": face_indices,
             "face_normals": face_normals,
+            "face_owner_slots": face_owner_slots,
             "face_primitive_offsets": face_primitive_offsets,
             "block_desc_vertex_offsets": block_desc_vertex_offsets,
             "desc_vertex_offsets": desc_vertex_offsets,
             "desc_primitive_offsets": desc_primitive_offsets,
+            "block_owner_offsets": block_owner_offsets,
+            "owner_component_policies": owner_component_policies,
+            "component_policy_signatures": component_policy_signatures,
             "entry_block_indices": entry_block_indices,
             "entry_descs": entry_descs,
             "vertex_values": vertex_values,
-            "emitted_contribution": emitted_contribution,
+            "emitted_lighting": emitted_lighting,
             "lighting_key": _mode57_lighting_key(lighting),
             "grouped": grouped,
         }
@@ -4552,9 +4808,9 @@ def _build_mode57_grouped_buffers(
 
 def _mode57_lighting_key(lighting):
     return (
-        tuple(int(value) for value in lighting["light"]),
-        int(lighting["directional"]),
-        int(lighting["fog_min"]),
+        tuple(int(value) for value in lighting["scene_light"]),
+        int(lighting["scene_light_is_directional"]),
+        int(lighting["ambient"]),
     )
 
 
@@ -4584,7 +4840,7 @@ def _update_cached_mode57_grouped_buffers(cached, pending, lighting):
             world_changed[block_pos] = 1
             world_changed_count += 1
 
-        normal_generation = int(record[6])
+        normal_generation = int(record[-1])
         if int(normal_generations[block_pos]) != normal_generation:
             face_start = int(block_face_offsets[block_pos])
             face_end = int(block_face_offsets[block_pos + 1])
@@ -4618,47 +4874,57 @@ def _update_cached_mode57_grouped_buffers(cached, pending, lighting):
             )
 
     lighting_key = _mode57_lighting_key(lighting)
-    contribution_changed = normal_changed
-    contribution_changed_count = normal_changed_count
+    lighting_changed = normal_changed
+    lighting_changed_count = normal_changed_count
+    lighting_changed_count += _refresh_cached_component_policies(
+        cached,
+        pending,
+        lighting_changed,
+    )
     if lighting_key != cached["lighting_key"]:
-        contribution_changed[:] = 1
-        contribution_changed_count = block_count
+        lighting_changed[:] = 1
+        lighting_changed_count = block_count
         cached["lighting_key"] = lighting_key
-    elif int(lighting["directional"]) == 0 and world_changed_count:
+    elif int(lighting["scene_light_is_directional"]) == 0 and world_changed_count:
         for block_pos in range(block_count):
-            if world_changed[block_pos] and not contribution_changed[block_pos]:
-                contribution_changed[block_pos] = 1
-                contribution_changed_count += 1
+            if world_changed[block_pos] and not lighting_changed[block_pos]:
+                lighting_changed[block_pos] = 1
+                lighting_changed_count += 1
 
-    if contribution_changed_count:
-        contribution_args = (
-            cached["emitted_contribution"],
+    if lighting_changed_count:
+        lighting_args = (
+            cached["emitted_lighting"],
             cached["face_block_indices"],
             cached["face_descs"],
             cached["face_counts"],
             cached["face_indices"],
             face_normals,
+            cached["face_owner_slots"],
             cached["face_primitive_offsets"],
             block_world_offsets,
         )
-        contribution_tail = (
+        lighting_tail = (
+            cached["block_owner_offsets"],
             cached["desc_primitive_offsets"],
+            cached["owner_component_policies"],
             all_world,
-            np.ascontiguousarray(np.asarray(lighting["light"], dtype=np.int64)),
-            int(lighting["directional"]),
-            int(lighting["fog_min"]),
-            contribution_changed,
+            np.ascontiguousarray(
+                np.asarray(lighting["scene_light"], dtype=np.int64)
+            ),
+            int(lighting["scene_light_is_directional"]),
+            int(lighting["ambient"]),
+            lighting_changed,
         )
         if cached["shared_vertices"]:
-            update_mode57_shared_contribution(
-                *contribution_args,
-                *contribution_tail,
+            update_mode57_shared_lighting(
+                *lighting_args,
+                *lighting_tail,
             )
         else:
-            update_mode57_grouped_contribution(
-                *contribution_args,
+            update_mode57_grouped_lighting(
+                *lighting_args,
                 cached["block_desc_vertex_offsets"],
-                *contribution_tail,
+                *lighting_tail,
             )
 
     return cached["grouped"]
@@ -4672,7 +4938,7 @@ def _replace_mode57_grouped_buffers(buffers, grouped):
         buffers.indexed_texmap_shared_vertices = array("f")
         buffers.indexed_texmap_vertices = grouped[0]
     buffers.indexed_texmap_indices = grouped[1]
-    buffers.indexed_texmap_primitive_contribution = grouped[2]
+    buffers.indexed_texmap_primitive_lighting = grouped[2]
 
 
 def _emit_remaining_faces(
@@ -4855,14 +5121,19 @@ def _read_face_indices(
 
 def _read_lighting_state(gamemem, camera):
     return {
-        "light": (
-            gamemem.read_reloc_i32(ADDR_LIGHT_X),
-            gamemem.read_reloc_i32(ADDR_LIGHT_Y),
-            gamemem.read_reloc_i32(ADDR_LIGHT_Z),
+        "scene_light": (
+            gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_X),
+            gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_Y),
+            gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_Z),
         ),
-        "directional": gamemem.read_reloc_i32(ADDR_LIGHT_DIR_FLAG) != 0,
-        "fog_min": gamemem.read_reloc_i32(ADDR_FOG_MIN),
-        "fog_distance": max(1, gamemem.read_reloc_i32(ADDR_FOG_DISTANCE)),
+        "scene_light_is_directional": (
+            gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_IS_DIRECTIONAL) != 0
+        ),
+        "ambient": gamemem.read_reloc_i32(ADDR_AMBIENT),
+        "fog_distance": gamemem.read_reloc_i32(ADDR_FOG_DISTANCE),
+        "component_lighting_mode": gamemem.read_reloc_u32(
+            ADDR_COMPONENT_LIGHTING_MODE
+        ),
         "camera_position": _camera_fixed_tuple(
             camera,
             "position_fixed",
@@ -4894,20 +5165,20 @@ def _compute_face_light_level(
     world_vertices,
     indices,
     lighting,
-    base_color,
+    material_light_scale,
     include_fog,
     continuous,
 ):
     nx, ny, nz = int(normal[0]), int(normal[1]), int(normal[2])
-    if lighting["directional"]:
-        lx = int(lighting["light"][0])
-        ly = int(lighting["light"][1])
-        lz = int(lighting["light"][2])
+    if lighting["scene_light_is_directional"]:
+        lx = int(lighting["scene_light"][0])
+        ly = int(lighting["scene_light"][1])
+        lz = int(lighting["scene_light"][2])
     else:
         v0 = world_vertices[indices[0]]
-        lx = int(lighting["light"][0]) - int(v0[0])
-        ly = int(lighting["light"][1]) - int(v0[1])
-        lz = int(lighting["light"][2]) - int(v0[2])
+        lx = int(lighting["scene_light"][0]) - int(v0[0])
+        ly = int(lighting["scene_light"][1]) - int(v0[1])
+        lz = int(lighting["scene_light"][2]) - int(v0[2])
 
     dot64 = lx * nx + ly * ny + lz * nz
     dot_shifted = dot64 >> 16
@@ -4915,91 +5186,86 @@ def _compute_face_light_level(
     ax, ay, az = abs(lx), abs(ly), abs(lz)
     light_or = ax | ay | az
     if light_or == 0:
-        return 1
+        dot_norm = 1
+        table_val = 1
+    else:
+        norm_shift = max(0, light_or.bit_length() - 1 - 7)
+        lx8 = (ax >> norm_shift) & 0xFF
+        ly8 = (ay >> norm_shift) & 0xFF
+        lz8 = (az >> norm_shift) & 0xFF
+        dot_norm = dot_shifted >> norm_shift
 
-    norm_shift = max(0, light_or.bit_length() - 1 - 7)
-    lx8 = (ax >> norm_shift) & 0xFF
-    ly8 = (ay >> norm_shift) & 0xFF
-    lz8 = (az >> norm_shift) & 0xFF
-    dot_norm = dot_shifted >> norm_shift
+        mag_sq = lx8 * lx8 + ly8 * ly8 + lz8 * lz8
+        table_idx = (mag_sq >> 7) & 0xFFFE
+        entry_idx = max(1, table_idx // 2)
+        table_val = SQRT_TABLE[min(entry_idx, len(SQRT_TABLE) - 1)]
 
-    mag_sq = lx8 * lx8 + ly8 * ly8 + lz8 * lz8
-    table_idx = (mag_sq >> 7) & 0xFFFE
-    entry_idx = max(1, table_idx // 2)
-    table_val = SQRT_TABLE[min(entry_idx, len(SQRT_TABLE) - 1)]
-
-    fog_range = 128 - lighting["fog_min"]
+    ambient_span = 128 - lighting["ambient"]
     if continuous:
-        brightness = float(dot_norm) / float(table_val)
-        remapped = (brightness * float(fog_range) / 128.0) + float(lighting["fog_min"])
-        contribution = ((float(base_color) * 0.5) * remapped) / 1088.0
-        fog_atten = (
-            _compute_fog_attenuation_float(world_vertices, indices, lighting)
+        normalized_light = float(dot_norm) / float(table_val)
+        ambient_adjusted_light = (
+            normalized_light * float(ambient_span) / 128.0
+        ) + float(lighting["ambient"])
+        lit_shade_before_fog = (
+            float(int(material_light_scale) >> 1)
+            * ambient_adjusted_light
+        ) / 1088.0
+        fog_shade_loss = (
+            _compute_fog_shade_loss_float(world_vertices, indices, lighting)
             if include_fog
             else 0.0
         )
-        return max(0.0, min(15.0, contribution - fog_atten))
+        return max(0.0, min(15.0, lit_shade_before_fog - fog_shade_loss))
 
-    brightness = _trunc_div(dot_norm, table_val)
-    remapped = ((brightness * fog_range) >> 7) + lighting["fog_min"]
-    half_base = int(base_color) >> 1
-    contribution = _trunc_div(half_base * remapped, 1088)
-    fog_atten = (
-        _compute_fog_attenuation(world_vertices, indices, lighting)
+    normalized_light = _trunc_div(dot_norm, table_val)
+    ambient_adjusted_light = (
+        (normalized_light * ambient_span) >> 7
+    ) + lighting["ambient"]
+    material_gain = int(material_light_scale) >> 1
+    lit_shade_before_fog = _trunc_div(
+        material_gain * ambient_adjusted_light,
+        1088,
+    )
+    fog_shade_loss = (
+        _compute_fog_shade_loss(world_vertices, indices, lighting)
         if include_fog
         else 0
     )
-    return max(0, min(15, contribution - fog_atten))
+    return max(0, min(15, lit_shade_before_fog - fog_shade_loss))
 
 
-def _compute_fog_attenuation(world_vertices, indices, lighting):
-    count = len(indices)
-    sx = sy = sz = 0
-    for index in indices:
-        vertex = world_vertices[index]
-        sx += int(vertex[0])
-        sy += int(vertex[1])
-        sz += int(vertex[2])
-    centroid = (_trunc_div(sx, count), _trunc_div(sy, count), _trunc_div(sz, count))
+def _compute_fog_shade_loss(world_vertices, indices, lighting):
+    fog_distance = int(lighting["fog_distance"])
+    if fog_distance == 0:
+        return 0
+    face_depth_x4 = 0
     camera_position = lighting["camera_position"]
     camera_forward = lighting["camera_forward"]
-    delta = (
-        centroid[0] - camera_position[0],
-        centroid[1] - camera_position[1],
-        centroid[2] - camera_position[2],
-    )
-    depth_dot = (
-        delta[0] * camera_forward[0]
-        + delta[1] * camera_forward[1]
-        + delta[2] * camera_forward[2]
-    )
-    view_depth = max(0, (depth_dot >> 29) * 4)
-    return ((int(view_depth) << 4) // lighting["fog_distance"]) >> 4
-
-
-def _compute_fog_attenuation_float(world_vertices, indices, lighting):
-    count = len(indices)
-    sx = sy = sz = 0
     for index in indices:
         vertex = world_vertices[index]
-        sx += int(vertex[0])
-        sy += int(vertex[1])
-        sz += int(vertex[2])
-    centroid = (sx / float(count), sy / float(count), sz / float(count))
+        depth_dot = (
+            (int(vertex[0]) - camera_position[0]) * camera_forward[0]
+            + (int(vertex[1]) - camera_position[1]) * camera_forward[1]
+            + (int(vertex[2]) - camera_position[2]) * camera_forward[2]
+        )
+        face_depth_x4 = max(face_depth_x4, (depth_dot + (1 << 26)) >> 27)
+    return ((face_depth_x4 << 4) // fog_distance) >> 4
+
+
+def _compute_fog_shade_loss_float(world_vertices, indices, lighting):
+    fog_distance = int(lighting["fog_distance"])
+    if fog_distance == 0:
+        return 0.0
     camera_position = lighting["camera_position"]
-    camera_forward = lighting["camera_forward"]
-    delta = (
-        centroid[0] - float(camera_position[0]),
-        centroid[1] - float(camera_position[1]),
-        centroid[2] - float(camera_position[2]),
+    face_distance_x4 = max(
+        math.sqrt(
+            (float(world_vertices[index][0]) - float(camera_position[0])) ** 2
+            + (float(world_vertices[index][1]) - float(camera_position[1])) ** 2
+            + (float(world_vertices[index][2]) - float(camera_position[2])) ** 2
+        ) * 4.0
+        for index in indices
     )
-    depth_dot = (
-        delta[0] * float(camera_forward[0])
-        + delta[1] * float(camera_forward[1])
-        + delta[2] * float(camera_forward[2])
-    )
-    view_depth = max(0.0, (depth_dot / float(ROTATION_FIXED_SCALE)) * 4.0)
-    return view_depth / float(max(1, int(lighting["fog_distance"])))
+    return face_distance_x4 / float(fog_distance)
 
 
 def _append_mode3_billboard_instance(
@@ -5194,12 +5460,12 @@ def _mode57_texture_desc_index(face_flags):
 def _target_flat_face_flags(face_flags, owner_class):
     owner_class = int(owner_class)
     lighting_scale = None
-    if (TARGET_POST_LIGHT_POLICY & 0x0100) and (
+    if (TARGET_FLAT_MATERIAL_CLASS_MASK & 0x0100) and (
         (owner_class & 0x0100)
         or (owner_class & 0x00F0) == 0x0050
     ):
         lighting_scale = TARGET_MECH_LIGHTING_SCALE
-    elif TARGET_POST_LIGHT_POLICY & owner_class:
+    elif TARGET_FLAT_MATERIAL_CLASS_MASK & owner_class:
         lighting_scale = TARGET_OTHER_LIGHTING_SCALE
     if lighting_scale is None:
         return None

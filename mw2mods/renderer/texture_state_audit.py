@@ -3,12 +3,13 @@ import zlib
 
 from . import diagnostics
 from .geometry import (
+    ADDR_AMBIENT,
+    ADDR_COMPONENT_LIGHTING_MODE,
     ADDR_FOG_DISTANCE,
-    ADDR_FOG_MIN,
-    ADDR_LIGHT_DIR_FLAG,
-    ADDR_LIGHT_X,
-    ADDR_LIGHT_Y,
-    ADDR_LIGHT_Z,
+    ADDR_SCENE_LIGHT_IS_DIRECTIONAL,
+    ADDR_SCENE_LIGHT_X,
+    ADDR_SCENE_LIGHT_Y,
+    ADDR_SCENE_LIGHT_Z,
 )
 from .texture import (
     ADDR_TEXTURE_CELL_TABLE,
@@ -79,7 +80,9 @@ def maybe_log_texture_state_audit(
             "cumulative_palette": 0,
             "cumulative_remap": 0,
             "cumulative_light": 0,
+            "cumulative_ambient": 0,
             "cumulative_fog": 0,
+            "cumulative_component_lighting": 0,
             "ever_display_animated_changed": set(),
             "ever_display_nontimed_changed": set(),
             "ever_tick_only_changed": set(),
@@ -103,7 +106,11 @@ def maybe_log_texture_state_audit(
     state["cumulative_palette"] += int(changes["palette_changed"])
     state["cumulative_remap"] += int(changes["remap_changed"])
     state["cumulative_light"] += int(changes["light_changed"])
+    state["cumulative_ambient"] += int(changes["ambient_changed"])
     state["cumulative_fog"] += int(changes["fog_changed"])
+    state["cumulative_component_lighting"] += int(
+        changes["component_lighting_changed"]
+    )
     state["ever_display_animated_changed"].update(
         event[0] for event in changes["display_animated"]
     )
@@ -363,15 +370,19 @@ def _read_remap_state(gamemem):
 
 def _read_lighting_state(gamemem):
     return {
-        "light": (
-            int(gamemem.read_reloc_i32(ADDR_LIGHT_X)),
-            int(gamemem.read_reloc_i32(ADDR_LIGHT_Y)),
-            int(gamemem.read_reloc_i32(ADDR_LIGHT_Z)),
-            int(gamemem.read_reloc_i32(ADDR_LIGHT_DIR_FLAG) != 0),
+        "scene_light": (
+            int(gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_X)),
+            int(gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_Y)),
+            int(gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_Z)),
+            int(
+                gamemem.read_reloc_i32(ADDR_SCENE_LIGHT_IS_DIRECTIONAL)
+                != 0
+            ),
         ),
-        "fog": (
-            int(gamemem.read_reloc_i32(ADDR_FOG_MIN)),
-            int(gamemem.read_reloc_i32(ADDR_FOG_DISTANCE)),
+        "ambient": int(gamemem.read_reloc_i32(ADDR_AMBIENT)),
+        "fog_distance": int(gamemem.read_reloc_i32(ADDR_FOG_DISTANCE)),
+        "component_lighting_mode": int(
+            gamemem.read_reloc_u32(ADDR_COMPONENT_LIGHTING_MODE)
         ),
     }
 
@@ -380,8 +391,22 @@ def _compare_texture_state(previous, current):
     result = {
         "palette_changed": previous["palette_crc"] != current["palette_crc"],
         "remap_changed": previous["remap"] != current["remap"],
-        "light_changed": previous["lighting"]["light"] != current["lighting"]["light"],
-        "fog_changed": previous["lighting"]["fog"] != current["lighting"]["fog"],
+        "light_changed": (
+            previous["lighting"]["scene_light"]
+            != current["lighting"]["scene_light"]
+        ),
+        "ambient_changed": (
+            previous["lighting"]["ambient"]
+            != current["lighting"]["ambient"]
+        ),
+        "fog_changed": (
+            previous["lighting"]["fog_distance"]
+            != current["lighting"]["fog_distance"]
+        ),
+        "component_lighting_changed": (
+            previous["lighting"]["component_lighting_mode"]
+            != current["lighting"]["component_lighting_mode"]
+        ),
         "membership": [],
         "display_animated": [],
         "display_nontimed": [],
@@ -449,8 +474,11 @@ def _format_baseline(snapshot, mission_generation, interval_frames):
         f"interval_frames={interval_frames} "
         f"palette={snapshot['palette_crc']} "
         f"remap={_format_remap(snapshot['remap'])} "
-        f"light={snapshot['lighting']['light']} "
-        f"fog={snapshot['lighting']['fog']} "
+        f"scene_light={snapshot['lighting']['scene_light']} "
+        f"ambient={snapshot['lighting']['ambient']} "
+        f"fog_distance={snapshot['lighting']['fog_distance']} "
+        f"component_lighting_mode="
+        f"{snapshot['lighting']['component_lighting_mode']} "
         f"scene_descs={len(descriptors)} "
         f"resolved={sum(int(value['resolved']) for value in descriptors.values())} "
         f"timed={sum(int(value['family'] == 'timed') for value in descriptors.values())} "
@@ -470,11 +498,17 @@ def _format_sample(snapshot, state, changes):
         f"palette_changed={int(changes['palette_changed'])} "
         f"remap_changed={int(changes['remap_changed'])} "
         f"light_changed={int(changes['light_changed'])} "
+        f"ambient_changed={int(changes['ambient_changed'])} "
         f"fog_changed={int(changes['fog_changed'])} "
+        f"component_lighting_changed="
+        f"{int(changes['component_lighting_changed'])} "
         f"palette={snapshot['palette_crc']} "
         f"remap={_format_remap(snapshot['remap'])} "
-        f"light={snapshot['lighting']['light']} "
-        f"fog={snapshot['lighting']['fog']} "
+        f"scene_light={snapshot['lighting']['scene_light']} "
+        f"ambient={snapshot['lighting']['ambient']} "
+        f"fog_distance={snapshot['lighting']['fog_distance']} "
+        f"component_lighting_mode="
+        f"{snapshot['lighting']['component_lighting_mode']} "
         f"membership_changes={len(changes['membership'])} "
         f"display_animated_changes={len(changes['display_animated'])} "
         f"display_nontimed_changes={len(changes['display_nontimed'])} "
@@ -496,7 +530,10 @@ def _format_sample(snapshot, state, changes):
         f"cumulative_palette={state['cumulative_palette']} "
         f"cumulative_remap={state['cumulative_remap']} "
         f"cumulative_light={state['cumulative_light']} "
+        f"cumulative_ambient={state['cumulative_ambient']} "
         f"cumulative_fog={state['cumulative_fog']} "
+        f"cumulative_component_lighting="
+        f"{state['cumulative_component_lighting']} "
         f"ever_display_animated_descs="
         f"{len(state['ever_display_animated_changed'])} "
         f"ever_display_nontimed_descs="

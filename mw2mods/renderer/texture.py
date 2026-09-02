@@ -521,7 +521,7 @@ def _default_remap_info(state=TEXTURE_REMAP_STATE_UNRESOLVED):
         "remap_kind": "identity",
         "remap_kind_id": 0,
         "dark_ratio": (0.0, 0.0, 0.0),
-        "fog_color": (0.0, 0.0, 0.0),
+        "fog_terminal_color": (0.0, 0.0, 0.0),
         "s8_ratio": (0.0, 0.0, 0.0),
     }
 
@@ -610,14 +610,21 @@ def _classify_texture_remap(hist, n_opaque, palette_rgb, remap_tables):
     s15_range = max(s15_luminances) - min(s15_luminances)
     s0_range = max(s0_luminances) - min(s0_luminances)
     contrast_ratio = float("inf") if s15_range <= 0.0 else s0_range / s15_range
-    fog_color_u8 = _palette_rgb_tuple(palette_rgb, int(s0_table[bright_idx]) & 0xFF)
+    fog_terminal_color_u8 = _palette_rgb_tuple(
+        palette_rgb,
+        int(s0_table[bright_idx]) & 0xFF,
+    )
 
     category = "unclassified"
     if len(s0_colors) >= 2 and max_lum <= 35.0:
         category = "darkening_2color"
-    elif len(s0_colors) == 1 and max_lum <= 15.0 and _rgb_chroma(fog_color_u8) <= 8:
+    elif (
+        len(s0_colors) == 1
+        and max_lum <= 15.0
+        and _rgb_chroma(fog_terminal_color_u8) <= 8
+    ):
         category = "darkening"
-    elif max_lum <= 15.0 and _rgb_chroma(fog_color_u8) > 8:
+    elif max_lum <= 15.0 and _rgb_chroma(fog_terminal_color_u8) > 8:
         category = "fog"
     elif contrast_ratio < 0.15:
         category = "fog"
@@ -628,7 +635,9 @@ def _classify_texture_remap(hist, n_opaque, palette_rgb, remap_tables):
         category = "fog"
 
     dark_ratio = _palette_ratio(palette_rgb, int(s0_table[bright_idx]) & 0xFF, bright_idx)
-    fog_color = tuple(float(channel) / 255.0 for channel in fog_color_u8)
+    fog_terminal_color = tuple(
+        float(channel) / 255.0 for channel in fog_terminal_color_u8
+    )
     s8_ratio = _palette_ratio(palette_rgb, int(s8_table[bright_idx]) & 0xFF, bright_idx)
     s0_index = int(s0_table[bright_idx]) & 0xFF
     s8_index = int(s8_table[bright_idx]) & 0xFF
@@ -639,7 +648,7 @@ def _classify_texture_remap(hist, n_opaque, palette_rgb, remap_tables):
             bright_idx,
             palette_rgb,
             remap_tables,
-            fog_color_u8,
+            fog_terminal_color_u8,
             s8_ratio,
         )
 
@@ -655,7 +664,7 @@ def _classify_texture_remap(hist, n_opaque, palette_rgb, remap_tables):
             "remap_kind": category,
             "remap_kind_id": kind_ids[category],
             "dark_ratio": dark_ratio,
-            "fog_color": fog_color,
+            "fog_terminal_color": fog_terminal_color,
             "s8_ratio": s8_ratio,
             "remap_bright_idx": int(bright_idx),
             "remap_s0_idx": s0_index,
@@ -678,7 +687,13 @@ def _texture_pixel_histogram(pixels):
     return hist, int(hist.sum(dtype=np.uint64))
 
 
-def _select_fog_category(bright_idx, palette_rgb, remap_tables, fog_color_u8, s8_ratio):
+def _select_fog_category(
+    bright_idx,
+    palette_rgb,
+    remap_tables,
+    fog_terminal_color_u8,
+    s8_ratio,
+):
     if any(channel >= 1.0 for channel in s8_ratio):
         return "fog"
 
@@ -693,8 +708,11 @@ def _select_fog_category(bright_idx, palette_rgb, remap_tables, fog_color_u8, s8
         )
         t = float(shade) / 15.0
         linear_pred = tuple(
-            float(fog_color_u8[channel])
-            + (float(bright_s15[channel]) - float(fog_color_u8[channel])) * t
+            float(fog_terminal_color_u8[channel])
+            + (
+                float(bright_s15[channel])
+                - float(fog_terminal_color_u8[channel])
+            ) * t
             for channel in range(3)
         )
         if t >= (8.0 / 15.0):
@@ -706,8 +724,10 @@ def _select_fog_category(bright_idx, palette_rgb, remap_tables, fog_color_u8, s8
         else:
             u = t / (8.0 / 15.0)
             split_pred = tuple(
-                float(fog_color_u8[channel])
-                + (mid[channel] - float(fog_color_u8[channel])) * u
+                float(fog_terminal_color_u8[channel])
+                + (
+                    mid[channel] - float(fog_terminal_color_u8[channel])
+                ) * u
                 for channel in range(3)
             )
         mse_linear += _rgb_squared_error(game_color, linear_pred)

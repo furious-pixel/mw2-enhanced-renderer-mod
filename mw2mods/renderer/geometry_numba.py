@@ -294,8 +294,64 @@ def _bit_length_u64(value):
     return result
 
 
+# Keep the discrete component policy above the full practical range of the
+# unclamped pre-fog shade.  The shader subtracts this lane before applying fog.
+LIGHTING_POLICY_PACK_SCALE = np.float32(4096.0)
+
+
 @njit(cache=True, inline="always")
-def _mode57_contribution_from_light(lx, ly, lz, nx, ny, nz, fog_min):
+def _pack_continuous_lighting_state(lit_shade_before_fog, component_policy):
+    return (
+        np.float32(component_policy) * LIGHTING_POLICY_PACK_SCALE
+        + np.float32(lit_shade_before_fog)
+    )
+
+
+@njit(cache=True, inline="always")
+def _apply_component_damage_shading(scene_shade_level, component_policy):
+    policy = int(component_policy)
+    if policy <= 0:
+        return scene_shade_level
+
+    if policy > 15:
+        component_damage = np.int64(policy - 15)
+        remaining_q16 = (
+            (np.int64(15) - scene_shade_level) << np.int64(16)
+        ) // np.int64(15)
+        return scene_shade_level + (
+            (
+                component_damage * remaining_q16
+                + np.int64(0x8000)
+            ) >> np.int64(16)
+        )
+
+    component_damage = np.int64(policy)
+    damage_scale_q16 = (np.int64(16) - component_damage) << np.int64(12)
+    return (
+        (scene_shade_level * damage_scale_q16 + np.int64(0x8000))
+        >> np.int64(16)
+    ) & np.int64(0x0F)
+
+
+@njit(cache=True, inline="always")
+def _face_component_policy(
+    face_pos,
+    block_pos,
+    face_owner_slots,
+    block_owner_offsets,
+    owner_component_policies,
+):
+    owner_pos = (
+        int(block_owner_offsets[block_pos])
+        + int(face_owner_slots[face_pos])
+    )
+    if owner_pos < 0 or owner_pos >= owner_component_policies.shape[0]:
+        return np.uint8(0)
+    return owner_component_policies[owner_pos]
+
+
+@njit(cache=True, inline="always")
+def _mode57_lit_shade_from_light(lx, ly, lz, nx, ny, nz, ambient):
     dot64 = lx * nx + ly * ny + lz * nz
     dot_shifted = dot64 >> np.int64(16)
 
@@ -304,33 +360,35 @@ def _mode57_contribution_from_light(lx, ly, lz, nx, ny, nz, fog_min):
     az = abs(lz)
     light_or = np.uint64(ax | ay | az)
     if light_or == 0:
-        return np.float32(1.0)
-
-    norm_shift = _bit_length_u64(light_or) - 1 - 7
-    if norm_shift < 0:
-        norm_shift = 0
-    lx8 = (ax >> norm_shift) & np.int64(0xFF)
-    ly8 = (ay >> norm_shift) & np.int64(0xFF)
-    lz8 = (az >> norm_shift) & np.int64(0xFF)
-    dot_norm = dot_shifted >> norm_shift
-    mag_sq = lx8 * lx8 + ly8 * ly8 + lz8 * lz8
-    table_idx = (mag_sq >> np.int64(7)) & np.int64(0xFFFE)
-    entry_idx = table_idx // np.int64(2)
-    if entry_idx < 1:
-        entry_idx = np.int64(1)
-    if entry_idx >= SQRT_TABLE_NP.shape[0]:
-        entry_idx = np.int64(SQRT_TABLE_NP.shape[0] - 1)
-    table_val = SQRT_TABLE_NP[entry_idx]
-    brightness = np.float32(dot_norm) / np.float32(table_val)
-    remapped = (
-        brightness * np.float32(np.int64(128 - fog_min)) / np.float32(128.0)
-    ) + np.float32(fog_min)
-    contribution = np.float32(127.5) * remapped / np.float32(1088.0)
-    if contribution < np.float32(0.0):
-        contribution = np.float32(0.0)
-    elif contribution > np.float32(15.0):
-        contribution = np.float32(15.0)
-    return contribution
+        normalized_light = np.float32(1.0)
+    else:
+        norm_shift = _bit_length_u64(light_or) - 1 - 7
+        if norm_shift < 0:
+            norm_shift = 0
+        lx8 = (ax >> norm_shift) & np.int64(0xFF)
+        ly8 = (ay >> norm_shift) & np.int64(0xFF)
+        lz8 = (az >> norm_shift) & np.int64(0xFF)
+        dot_norm = dot_shifted >> norm_shift
+        mag_sq = lx8 * lx8 + ly8 * ly8 + lz8 * lz8
+        table_idx = (mag_sq >> np.int64(7)) & np.int64(0xFFFE)
+        entry_idx = table_idx // np.int64(2)
+        if entry_idx < 1:
+            entry_idx = np.int64(1)
+        if entry_idx >= SQRT_TABLE_NP.shape[0]:
+            entry_idx = np.int64(SQRT_TABLE_NP.shape[0] - 1)
+        table_val = SQRT_TABLE_NP[entry_idx]
+        normalized_light = np.float32(dot_norm) / np.float32(table_val)
+    ambient_adjusted_light = (
+        normalized_light
+        * np.float32(np.int64(128 - ambient))
+        / np.float32(128.0)
+    ) + np.float32(ambient)
+    lit_shade_before_fog = (
+        np.float32(127.0) * ambient_adjusted_light / np.float32(1088.0)
+    )
+    if lit_shade_before_fog < np.float32(0.0):
+        lit_shade_before_fog = np.float32(0.0)
+    return lit_shade_before_fog
 
 
 @njit(cache=True, inline="always")
@@ -348,7 +406,7 @@ def _light_table_value(lx, ly, lz, dot_shifted):
     az = abs(lz)
     light_or = np.uint64(ax | ay | az)
     if light_or == 0:
-        return np.int64(0), np.int64(0)
+        return np.int64(1), np.int64(1)
 
     norm_shift = _bit_length_u64(light_or) - 1 - 7
     if norm_shift < 0:
@@ -368,118 +426,131 @@ def _light_table_value(lx, ly, lz, dot_shifted):
 
 
 @njit(cache=True, inline="always")
-def _mode1_fog_offset(
+def _mode1_final_shade_level(
     face_flags,
     count,
     indices,
     normal,
     world_base,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     fog_distance,
     camera_position,
     camera_forward,
+    component_policy,
 ):
     first_index = int(indices[0])
     first_world_index = world_base + first_index
-    if light_directional != 0:
-        lx = np.int64(light[0])
-        ly = np.int64(light[1])
-        lz = np.int64(light[2])
+    if scene_light_is_directional != 0:
+        lx = np.int64(scene_light[0])
+        ly = np.int64(scene_light[1])
+        lz = np.int64(scene_light[2])
     else:
-        lx = np.int64(light[0]) - np.int64(world_vertices[first_world_index, 0])
-        ly = np.int64(light[1]) - np.int64(world_vertices[first_world_index, 1])
-        lz = np.int64(light[2]) - np.int64(world_vertices[first_world_index, 2])
+        lx = np.int64(scene_light[0]) - np.int64(world_vertices[first_world_index, 0])
+        ly = np.int64(scene_light[1]) - np.int64(world_vertices[first_world_index, 1])
+        lz = np.int64(scene_light[2]) - np.int64(world_vertices[first_world_index, 2])
 
     nx = np.int64(normal[0])
     ny = np.int64(normal[1])
     nz = np.int64(normal[2])
     dot_shifted = (lx * nx + ly * ny + lz * nz) >> np.int64(16)
     dot_norm, table_val = _light_table_value(lx, ly, lz, dot_shifted)
-    if table_val == 0:
-        return np.int64(1)
-
-    brightness = _trunc_div_i64(dot_norm, table_val)
-    remapped = ((brightness * np.int64(128 - fog_min)) >> np.int64(7)) + np.int64(
-        fog_min
+    normalized_light = _trunc_div_i64(dot_norm, table_val)
+    ambient_adjusted_light = (
+        (normalized_light * np.int64(128 - ambient)) >> np.int64(7)
+    ) + np.int64(
+        ambient
     )
-    half_base = np.int64(face_flags & np.int64(0xFF)) >> np.int64(1)
-    contribution = _trunc_div_i64(half_base * remapped, np.int64(1088))
-
-    sx = np.int64(0)
-    sy = np.int64(0)
-    sz = np.int64(0)
-    for index_pos in range(count):
-        vertex_index = world_base + int(indices[index_pos])
-        sx += np.int64(world_vertices[vertex_index, 0])
-        sy += np.int64(world_vertices[vertex_index, 1])
-        sz += np.int64(world_vertices[vertex_index, 2])
-
-    centroid_x = _trunc_div_i64(sx, np.int64(count))
-    centroid_y = _trunc_div_i64(sy, np.int64(count))
-    centroid_z = _trunc_div_i64(sz, np.int64(count))
-    delta_x = centroid_x - np.int64(camera_position[0])
-    delta_y = centroid_y - np.int64(camera_position[1])
-    delta_z = centroid_z - np.int64(camera_position[2])
-    depth_dot = (
-        delta_x * np.int64(camera_forward[0])
-        + delta_y * np.int64(camera_forward[1])
-        + delta_z * np.int64(camera_forward[2])
+    material_gain = np.int64(face_flags & np.int64(0xFF)) >> np.int64(1)
+    lit_shade_before_fog = _trunc_div_i64(
+        material_gain * ambient_adjusted_light,
+        np.int64(1088),
     )
-    view_depth = (depth_dot >> np.int64(29)) * np.int64(4)
-    if view_depth < 0:
-        view_depth = np.int64(0)
-    fog_atten = ((view_depth << np.int64(4)) // np.int64(fog_distance)) >> np.int64(4)
-    contribution -= fog_atten
-    if contribution < 0:
-        contribution = np.int64(0)
-    elif contribution > 15:
-        contribution = np.int64(15)
-    return contribution
+
+    fog_shade_loss = np.int64(0)
+    if fog_distance != 0:
+        face_depth_x4 = np.int64(0)
+        for index_pos in range(count):
+            vertex_index = world_base + int(indices[index_pos])
+            delta_x = (
+                np.int64(world_vertices[vertex_index, 0])
+                - np.int64(camera_position[0])
+            )
+            delta_y = (
+                np.int64(world_vertices[vertex_index, 1])
+                - np.int64(camera_position[1])
+            )
+            delta_z = (
+                np.int64(world_vertices[vertex_index, 2])
+                - np.int64(camera_position[2])
+            )
+            depth_dot = (
+                delta_x * np.int64(camera_forward[0])
+                + delta_y * np.int64(camera_forward[1])
+                + delta_z * np.int64(camera_forward[2])
+            )
+            vertex_depth_x4 = (
+                depth_dot + np.int64(1 << 26)
+            ) >> np.int64(27)
+            if vertex_depth_x4 > face_depth_x4:
+                face_depth_x4 = vertex_depth_x4
+        fog_shade_loss = (
+            _trunc_div_i64(
+                face_depth_x4 << np.int64(4),
+                np.int64(fog_distance),
+            )
+        ) >> np.int64(4)
+
+    scene_shade_level = lit_shade_before_fog - fog_shade_loss
+    if scene_shade_level < 0:
+        scene_shade_level = np.int64(0)
+    elif scene_shade_level > 15:
+        scene_shade_level = np.int64(15)
+    return _apply_component_damage_shading(
+        scene_shade_level,
+        component_policy,
+    )
 
 
 @njit(cache=True, inline="always")
-def _mode4_contribution(
+def _mode4_lit_shade_before_fog(
     face_flags,
     first_world_index,
     normal,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
 ):
-    if light_directional != 0:
-        lx = np.int64(light[0])
-        ly = np.int64(light[1])
-        lz = np.int64(light[2])
+    if scene_light_is_directional != 0:
+        lx = np.int64(scene_light[0])
+        ly = np.int64(scene_light[1])
+        lz = np.int64(scene_light[2])
     else:
-        lx = np.int64(light[0]) - np.int64(world_vertices[first_world_index, 0])
-        ly = np.int64(light[1]) - np.int64(world_vertices[first_world_index, 1])
-        lz = np.int64(light[2]) - np.int64(world_vertices[first_world_index, 2])
+        lx = np.int64(scene_light[0]) - np.int64(world_vertices[first_world_index, 0])
+        ly = np.int64(scene_light[1]) - np.int64(world_vertices[first_world_index, 1])
+        lz = np.int64(scene_light[2]) - np.int64(world_vertices[first_world_index, 2])
 
     nx = np.int64(normal[0])
     ny = np.int64(normal[1])
     nz = np.int64(normal[2])
     dot_shifted = (lx * nx + ly * ny + lz * nz) >> np.int64(16)
     dot_norm, table_val = _light_table_value(lx, ly, lz, dot_shifted)
-    if table_val == 0:
-        return np.float32(1.0)
-
-    brightness = np.float64(dot_norm) / np.float64(table_val)
-    remapped = (
-        brightness * np.float64(np.int64(128 - fog_min)) / np.float64(128.0)
-    ) + np.float64(fog_min)
-    contribution = (
-        (np.float64(face_flags & np.int64(0xFF)) * np.float64(0.5))
-        * remapped
+    normalized_light = np.float64(dot_norm) / np.float64(table_val)
+    ambient_adjusted_light = (
+        normalized_light
+        * np.float64(np.int64(128 - ambient))
+        / np.float64(128.0)
+    ) + np.float64(ambient)
+    lit_shade_before_fog = (
+        np.float64((face_flags & np.int64(0xFF)) >> np.int64(1))
+        * ambient_adjusted_light
     ) / np.float64(1088.0)
-    if contribution < np.float64(0.0):
-        contribution = np.float64(0.0)
-    elif contribution > np.float64(15.0):
-        contribution = np.float64(15.0)
-    return np.float32(contribution)
+    if lit_shade_before_fog < np.float64(0.0):
+        lit_shade_before_fog = np.float64(0.0)
+    return np.float32(lit_shade_before_fog)
 
 
 @njit(cache=True)
@@ -640,13 +711,16 @@ def fill_indexed_flat_indices_and_palettes(
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_triangle_offsets,
     block_world_offsets,
     block_vertex_offsets,
+    block_owner_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     fog_distance,
     camera_position,
     camera_forward,
@@ -663,23 +737,30 @@ def fill_indexed_flat_indices_and_palettes(
         if int(face_modes[face_pos]) == 0:
             palette_value = np.float32((flags >> np.int64(4)) & np.int64(0xFF))
         else:
-            fog_offset = _mode1_fog_offset(
+            final_shade_level = _mode1_final_shade_level(
                 flags,
                 count,
                 face_indices[face_pos],
                 face_normals[face_pos],
                 world_base,
                 world_vertices,
-                light,
-                light_directional,
-                fog_min,
+                scene_light,
+                scene_light_is_directional,
+                ambient,
                 fog_distance,
                 camera_position,
                 camera_forward,
+                _face_component_policy(
+                    face_pos,
+                    block_pos,
+                    face_owner_slots,
+                    block_owner_offsets,
+                    owner_component_policies,
+                ),
             )
             palette_value = np.float32(
                 (((flags >> np.int64(8)) & np.int64(0xF)) << np.int64(4))
-                | (fog_offset & np.int64(0xF))
+                | (final_shade_level & np.int64(0xF))
             )
 
         anchor = vertex_base + int(face_indices[face_pos, 0])
@@ -706,12 +787,15 @@ def update_indexed_flat_palettes(
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_triangle_offsets,
     block_world_offsets,
+    block_owner_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     fog_distance,
     camera_position,
     camera_forward,
@@ -729,23 +813,30 @@ def update_indexed_flat_palettes(
         if int(face_modes[face_pos]) == 0:
             palette_value = np.float32((flags >> np.int64(4)) & np.int64(0xFF))
         else:
-            fog_offset = _mode1_fog_offset(
+            final_shade_level = _mode1_final_shade_level(
                 flags,
                 count,
                 face_indices[face_pos],
                 face_normals[face_pos],
                 int(block_world_offsets[block_pos]),
                 world_vertices,
-                light,
-                light_directional,
-                fog_min,
+                scene_light,
+                scene_light_is_directional,
+                ambient,
                 fog_distance,
                 camera_position,
                 camera_forward,
+                _face_component_policy(
+                    face_pos,
+                    block_pos,
+                    face_owner_slots,
+                    block_owner_offsets,
+                    owner_component_policies,
+                ),
             )
             palette_value = np.float32(
                 (((flags >> np.int64(8)) & np.int64(0xF)) << np.int64(4))
-                | (fog_offset & np.int64(0xF))
+                | (final_shade_level & np.int64(0xF))
             )
 
         primitive_base = int(face_triangle_offsets[face_pos])
@@ -761,13 +852,16 @@ def fill_mode4_vertices(
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_triangle_offsets,
     block_world_offsets,
+    block_owner_offsets,
+    owner_component_policies,
     world_vertices,
     c_in_values,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
 ):
     for face_pos in range(face_counts.shape[0]):
         count = int(face_counts[face_pos])
@@ -777,14 +871,24 @@ def fill_mode4_vertices(
         block_pos = int(face_block_indices[face_pos])
         world_base = int(block_world_offsets[block_pos])
         first_world_index = world_base + int(face_indices[face_pos, 0])
-        contribution = _mode4_contribution(
+        lit_shade_before_fog = _mode4_lit_shade_before_fog(
             np.int64(face_flags[face_pos]),
             first_world_index,
             face_normals[face_pos],
             world_vertices,
-            light,
-            light_directional,
-            fog_min,
+            scene_light,
+            scene_light_is_directional,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
 
         output_vertex = int(face_triangle_offsets[face_pos]) * 3
@@ -810,7 +914,7 @@ def fill_mode4_vertices(
                     * FIXED_16_16_SCALE_F32
                 )
                 out_vertices[out_base + 3] = np.float32(c_in_values[world_index])
-                out_vertices[out_base + 4] = contribution
+                out_vertices[out_base + 4] = lighting_state
 
 
 @njit(cache=True)
@@ -821,13 +925,16 @@ def update_mode4_vertices(
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_triangle_offsets,
     block_world_offsets,
+    block_owner_offsets,
+    owner_component_policies,
     world_vertices,
     c_in_values,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     changed_blocks,
 ):
     for face_pos in range(face_counts.shape[0]):
@@ -840,14 +947,24 @@ def update_mode4_vertices(
 
         world_base = int(block_world_offsets[block_pos])
         first_world_index = world_base + int(face_indices[face_pos, 0])
-        contribution = _mode4_contribution(
+        lit_shade_before_fog = _mode4_lit_shade_before_fog(
             np.int64(face_flags[face_pos]),
             first_world_index,
             face_normals[face_pos],
             world_vertices,
-            light,
-            light_directional,
-            fog_min,
+            scene_light,
+            scene_light_is_directional,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
 
         output_vertex = int(face_triangle_offsets[face_pos]) * 3
@@ -873,7 +990,7 @@ def update_mode4_vertices(
                     * FIXED_16_16_SCALE_F32
                 )
                 out_vertices[out_base + 3] = np.float32(c_in_values[world_index])
-                out_vertices[out_base + 4] = contribution
+                out_vertices[out_base + 4] = lighting_state
 
 
 @njit(cache=True, inline="always")
@@ -1208,26 +1325,29 @@ def update_mode57_shared_vertices(
 
 
 @njit(cache=True)
-def fill_mode57_grouped_indices_and_contribution(
+def fill_mode57_grouped_indices_and_lighting(
     out_indices,
-    out_contribution,
+    out_lighting_state,
     face_block_indices,
     face_descs,
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_primitive_offsets,
     block_world_offsets,
     block_desc_vertex_offsets,
+    block_owner_offsets,
     desc_primitive_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
 ):
-    light_x = np.int64(light[0])
-    light_y = np.int64(light[1])
-    light_z = np.int64(light[2])
+    light_x = np.int64(scene_light[0])
+    light_y = np.int64(scene_light[1])
+    light_z = np.int64(scene_light[2])
 
     for face_pos in range(face_counts.shape[0]):
         count = int(face_counts[face_pos])
@@ -1241,7 +1361,7 @@ def fill_mode57_grouped_indices_and_contribution(
             continue
 
         first_index = int(face_indices[face_pos, 0])
-        if light_directional != 0:
+        if scene_light_is_directional != 0:
             lx = light_x
             ly = light_y
             lz = light_z
@@ -1251,14 +1371,24 @@ def fill_mode57_grouped_indices_and_contribution(
             ly = light_y - np.int64(world_vertices[first_world_index, 1])
             lz = light_z - np.int64(world_vertices[first_world_index, 2])
 
-        contribution = _mode57_contribution_from_light(
+        lit_shade_before_fog = _mode57_lit_shade_from_light(
             lx,
             ly,
             lz,
             np.int64(face_normals[face_pos, 0]),
             np.int64(face_normals[face_pos, 1]),
             np.int64(face_normals[face_pos, 2]),
-            fog_min,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
 
         anchor = vertex_offset + first_index
@@ -1275,29 +1405,32 @@ def fill_mode57_grouped_indices_and_contribution(
             out_indices[index_pos + 2] = np.uint16(
                 vertex_offset + int(face_indices[face_pos, triangle_pos + 2])
             )
-            out_contribution[primitive_pos] = contribution
+            out_lighting_state[primitive_pos] = lighting_state
 
 
 @njit(cache=True)
-def fill_mode57_shared_indices_and_contribution(
+def fill_mode57_shared_indices_and_lighting(
     out_indices,
-    out_contribution,
+    out_lighting_state,
     face_block_indices,
     face_descs,
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_primitive_offsets,
     block_world_offsets,
+    block_owner_offsets,
     desc_primitive_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
 ):
-    light_x = np.int64(light[0])
-    light_y = np.int64(light[1])
-    light_z = np.int64(light[2])
+    light_x = np.int64(scene_light[0])
+    light_y = np.int64(scene_light[1])
+    light_z = np.int64(scene_light[2])
 
     for face_pos in range(face_counts.shape[0]):
         count = int(face_counts[face_pos])
@@ -1310,7 +1443,7 @@ def fill_mode57_shared_indices_and_contribution(
         block_pos = int(face_block_indices[face_pos])
         vertex_offset = int(block_world_offsets[block_pos])
         first_index = int(face_indices[face_pos, 0])
-        if light_directional != 0:
+        if scene_light_is_directional != 0:
             lx = light_x
             ly = light_y
             lz = light_z
@@ -1320,14 +1453,24 @@ def fill_mode57_shared_indices_and_contribution(
             ly = light_y - np.int64(world_vertices[first_world_index, 1])
             lz = light_z - np.int64(world_vertices[first_world_index, 2])
 
-        contribution = _mode57_contribution_from_light(
+        lit_shade_before_fog = _mode57_lit_shade_from_light(
             lx,
             ly,
             lz,
             np.int64(face_normals[face_pos, 0]),
             np.int64(face_normals[face_pos, 1]),
             np.int64(face_normals[face_pos, 2]),
-            fog_min,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
 
         anchor = vertex_offset + first_index
@@ -1344,30 +1487,33 @@ def fill_mode57_shared_indices_and_contribution(
             out_indices[index_pos + 2] = np.uint32(
                 vertex_offset + int(face_indices[face_pos, triangle_pos + 2])
             )
-            out_contribution[primitive_pos] = contribution
+            out_lighting_state[primitive_pos] = lighting_state
 
 
 @njit(cache=True)
-def update_mode57_grouped_contribution(
-    out_contribution,
+def update_mode57_grouped_lighting(
+    out_lighting_state,
     face_block_indices,
     face_descs,
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_primitive_offsets,
     block_world_offsets,
     block_desc_vertex_offsets,
+    block_owner_offsets,
     desc_primitive_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     changed_blocks,
 ):
-    light_x = np.int64(light[0])
-    light_y = np.int64(light[1])
-    light_z = np.int64(light[2])
+    light_x = np.int64(scene_light[0])
+    light_y = np.int64(scene_light[1])
+    light_z = np.int64(scene_light[2])
 
     for face_pos in range(face_counts.shape[0]):
         block_pos = int(face_block_indices[face_pos])
@@ -1383,7 +1529,7 @@ def update_mode57_grouped_contribution(
             continue
 
         first_index = int(face_indices[face_pos, 0])
-        if light_directional != 0:
+        if scene_light_is_directional != 0:
             lx = light_x
             ly = light_y
             lz = light_z
@@ -1393,42 +1539,55 @@ def update_mode57_grouped_contribution(
             ly = light_y - np.int64(world_vertices[first_world_index, 1])
             lz = light_z - np.int64(world_vertices[first_world_index, 2])
 
-        contribution = _mode57_contribution_from_light(
+        lit_shade_before_fog = _mode57_lit_shade_from_light(
             lx,
             ly,
             lz,
             np.int64(face_normals[face_pos, 0]),
             np.int64(face_normals[face_pos, 1]),
             np.int64(face_normals[face_pos, 2]),
-            fog_min,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
         primitive_base = int(desc_primitive_offsets[desc_idx]) + int(
             face_primitive_offsets[face_pos]
         )
         for triangle_pos in range(count - 2):
-            out_contribution[primitive_base + triangle_pos] = contribution
+            out_lighting_state[primitive_base + triangle_pos] = lighting_state
 
 
 @njit(cache=True)
-def update_mode57_shared_contribution(
-    out_contribution,
+def update_mode57_shared_lighting(
+    out_lighting_state,
     face_block_indices,
     face_descs,
     face_counts,
     face_indices,
     face_normals,
+    face_owner_slots,
     face_primitive_offsets,
     block_world_offsets,
+    block_owner_offsets,
     desc_primitive_offsets,
+    owner_component_policies,
     world_vertices,
-    light,
-    light_directional,
-    fog_min,
+    scene_light,
+    scene_light_is_directional,
+    ambient,
     changed_blocks,
 ):
-    light_x = np.int64(light[0])
-    light_y = np.int64(light[1])
-    light_z = np.int64(light[2])
+    light_x = np.int64(scene_light[0])
+    light_y = np.int64(scene_light[1])
+    light_z = np.int64(scene_light[2])
 
     for face_pos in range(face_counts.shape[0]):
         block_pos = int(face_block_indices[face_pos])
@@ -1443,7 +1602,7 @@ def update_mode57_shared_contribution(
             continue
         first_index = int(face_indices[face_pos, 0])
         vertex_offset = int(block_world_offsets[block_pos])
-        if light_directional != 0:
+        if scene_light_is_directional != 0:
             lx = light_x
             ly = light_y
             lz = light_z
@@ -1453,17 +1612,27 @@ def update_mode57_shared_contribution(
             ly = light_y - np.int64(world_vertices[first_world_index, 1])
             lz = light_z - np.int64(world_vertices[first_world_index, 2])
 
-        contribution = _mode57_contribution_from_light(
+        lit_shade_before_fog = _mode57_lit_shade_from_light(
             lx,
             ly,
             lz,
             np.int64(face_normals[face_pos, 0]),
             np.int64(face_normals[face_pos, 1]),
             np.int64(face_normals[face_pos, 2]),
-            fog_min,
+            ambient,
+        )
+        lighting_state = _pack_continuous_lighting_state(
+            lit_shade_before_fog,
+            _face_component_policy(
+                face_pos,
+                block_pos,
+                face_owner_slots,
+                block_owner_offsets,
+                owner_component_policies,
+            ),
         )
         primitive_base = int(desc_primitive_offsets[desc_idx]) + int(
             face_primitive_offsets[face_pos]
         )
         for triangle_pos in range(count - 2):
-            out_contribution[primitive_base + triangle_pos] = contribution
+            out_lighting_state[primitive_base + triangle_pos] = lighting_state

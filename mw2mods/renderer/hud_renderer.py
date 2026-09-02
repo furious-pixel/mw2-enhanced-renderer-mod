@@ -40,11 +40,6 @@ from .projection import perspective_projection_info
 from .scene_state import palette_color_float
 
 
-# The enhanced textured three-point target pass is retained for experimentation,
-# but disabled by default. Some target polygons flicker for an unknown reason,
-# and the heavily textured/illuminated mech remains harder to read than the
-# game's clearer flat-shaded presentation.
-TARGET_DISPLAY_ENHANCED_RENDERING = False
 HUD_PANEL_TEXT_SLOT_COUNT = (
     MFD_CAMERA_TEXT_SLOT_BASE + MFD_CAMERA_TEXT_SLOT_COUNT
 )
@@ -1470,7 +1465,6 @@ def _render_hud_camera_target(
     background=None,
     imaging_active=0,
     draw_static=True,
-    target_lighting=False,
 ):
     scene_renderer._ensure_scene_render_target(resources, target, target_size)
     render_size = target.render_size
@@ -1493,10 +1487,6 @@ def _render_hud_camera_target(
             render_size=render_size,
             projection_size=logical_size,
         )
-    scene_renderer._set_target_view_lighting(
-        resources,
-        camera if target_lighting else None,
-    )
     return scene_renderer._draw_geometry_to_scene(
         resources,
         camera,
@@ -1542,7 +1532,6 @@ def _render_camera_view(
         )
         return _hud_view_key(view)
     finally:
-        scene_renderer._set_target_view_lighting(resources, None)
         resources.ctx.disable(moderngl.CULL_FACE)
         resources.ctx.screen.use()
         resources.ctx.enable_only(moderngl.NOTHING)
@@ -1593,9 +1582,6 @@ def render_prepared_target_camera_view(
         layout_settings,
         imaging_active=1 if display_mode == 1 else 0,
         draw_static=False,
-        target_lighting=(
-            display_mode == 2 and TARGET_DISPLAY_ENHANCED_RENDERING
-        ),
     )
     resources.target_view_ready = resources.target_view_key is not None
 

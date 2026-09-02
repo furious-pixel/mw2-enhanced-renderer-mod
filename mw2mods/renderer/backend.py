@@ -290,19 +290,21 @@ class RendererResources:
         )
         self.textured_program["u_palette"].value = 0
         self.textured_program["u_indexed_texture"].value = 1
-        self.textured_program["u_target_lighting_enabled"].value = 0
         self.indexed_texmap_program = load_program(self.ctx, "indexed_texmap")
         self.indexed_texmap_program["u_palette"].value = 0
         self.indexed_texmap_program["u_indexed_texture"].value = 1
-        self.indexed_texmap_program["u_primitive_contribution"].value = 2
+        self.indexed_texmap_program["u_primitive_lighting"].value = 2
         self.indexed_texmap_program["u_remap_kind"].value = 0
         self.indexed_texmap_program["u_dark_ratio"].value = (0.0, 0.0, 0.0)
-        self.indexed_texmap_program["u_fog_color"].value = (0.0, 0.0, 0.0)
+        self.indexed_texmap_program["u_fog_terminal_color"].value = (
+            0.0,
+            0.0,
+            0.0,
+        )
         self.indexed_texmap_program["u_s8_ratio"].value = (0.0, 0.0, 0.0)
         self.indexed_texmap_program["u_uv_scale"].value = (1.0, 1.0)
         self.indexed_texmap_program["u_texture_role"].value = 0
         self.indexed_texmap_program["u_texture_size"].value = (1, 1)
-        self.indexed_texmap_program["u_target_lighting_enabled"].value = 0
         self.indexed_texmap_program["u_rotor_enhanced"].value = 0
         self.indexed_texmap_program["u_rotor_texture_size"].value = (1, 1)
         self.blit_program = load_program(self.ctx, "blit")

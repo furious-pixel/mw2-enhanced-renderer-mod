@@ -2,24 +2,17 @@
 
 in vec3 in_pos;
 in float in_c_in;
-in float in_contribution;
+in float in_lighting_state;
 
 uniform mat4 u_projection;
 uniform vec3 u_camera_position;
 uniform vec3 u_camera_right;
 uniform vec3 u_camera_up;
 uniform vec3 u_camera_forward;
-uniform float u_fog_distance;
-
-out float v_palette_index;
+out float v_palette_base;
+out float v_palette_span;
+flat out float v_lighting_state;
 out vec3 v_world_pos;
-
-float enhanced_fog_atten(vec3 world_pos) {
-    float fog_distance = max(u_fog_distance, 1e-6);
-    vec3 delta = world_pos - u_camera_position;
-    float camera_distance = length(delta) * 4.0;
-    return camera_distance / fog_distance;
-}
 
 void main() {
     vec3 delta = in_pos - u_camera_position;
@@ -30,23 +23,15 @@ void main() {
     );
     gl_Position = u_projection * vec4(view_pos, 1.0);
     v_world_pos = in_pos;
-
-    if (in_contribution < 0.0) {
-        v_palette_index = in_c_in;
-        return;
+    v_lighting_state = in_lighting_state;
+    if (
+        in_lighting_state < 0.0
+        || in_c_in < @MODE4_EMISSIVE_C_IN_THRESHOLD@
+    ) {
+        v_palette_base = in_c_in;
+        v_palette_span = 0.0;
+    } else {
+        v_palette_base = floor(in_c_in / 16.0) * 16.0;
+        v_palette_span = mod(in_c_in, 16.0);
     }
-
-    if (in_c_in < @MODE4_EMISSIVE_C_IN_THRESHOLD@) {
-        v_palette_index = in_c_in;
-        return;
-    }
-
-    float offset = clamp(
-        in_contribution - enhanced_fog_atten(in_pos),
-        0.0,
-        15.0
-    );
-    float ramp_base = floor(in_c_in / 16.0) * 16.0;
-    float ramp_value = mod(in_c_in, 16.0);
-    v_palette_index = ramp_base + ramp_value * ((offset + 1.0) / 16.0);
 }

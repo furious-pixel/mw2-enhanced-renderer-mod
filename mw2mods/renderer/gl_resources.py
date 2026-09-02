@@ -569,7 +569,7 @@ class DynamicGeometryResources:
         self.dynamic_mode4_mesh = DynamicMesh(
             ctx,
             mode4_program,
-            ("in_c_in", "in_contribution"),
+            ("in_c_in", "in_lighting_state"),
             vertex_format=MODE4_VERTEX_FORMAT,
             vertex_floats=MODE4_VERTEX_FLOATS,
         )
@@ -594,7 +594,7 @@ class DynamicGeometryResources:
         self.dynamic_indexed_texmap_mesh_set = SharedDynamicIndexedMeshSet(
             ctx,
             indexed_texmap_program,
-            "u_primitive_contribution",
+            "u_primitive_lighting",
             attributes=("in_uv",),
             vertex_format=INDEXED_TEXMAP_VERTEX_FORMAT,
             vertex_floats=INDEXED_TEXMAP_VERTEX_FLOATS,

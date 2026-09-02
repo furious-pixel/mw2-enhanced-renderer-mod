@@ -1,4 +1,3 @@
-import math
 import time
 from array import array
 
@@ -149,7 +148,7 @@ def _upload_geometry_partition(resources, partition):
         resources.dynamic_indexed_texmap_mesh_set.update(
             partition.indexed_texmap_shared_vertices,
             partition.indexed_texmap_indices,
-            partition.indexed_texmap_primitive_contribution,
+            partition.indexed_texmap_primitive_lighting,
         )
     else:
         resources.dynamic_indexed_texmap_mesh_set.update((), {}, {})
@@ -158,7 +157,7 @@ def _upload_geometry_partition(resources, partition):
             resources.grouped_indexed_texmap_meshes,
             partition.indexed_texmap_vertices,
             partition.indexed_texmap_indices,
-            partition.indexed_texmap_primitive_contribution,
+            partition.indexed_texmap_primitive_lighting,
         )
     _sync_rotor_meshes(resources, partition.rotor_batches)
     resources.dynamic_geometry_has_vertices = _geometry_partition_has_vertices(resources)
@@ -217,7 +216,7 @@ def _sync_indexed_texmap_meshes(
     meshes,
     grouped_vertices,
     grouped_indices,
-    grouped_primitive_contribution,
+    grouped_primitive_lighting,
 ):
     active_descs = set()
     for desc_idx, indices in grouped_indices.items():
@@ -228,7 +227,7 @@ def _sync_indexed_texmap_meshes(
             mesh = DynamicIndexedMesh(
                 resources.ctx,
                 resources.indexed_texmap_program,
-                "u_primitive_contribution",
+                "u_primitive_lighting",
                 attributes=("in_uv",),
                 vertex_format=INDEXED_TEXMAP_VERTEX_FORMAT,
                 vertex_floats=INDEXED_TEXMAP_VERTEX_FLOATS,
@@ -237,7 +236,7 @@ def _sync_indexed_texmap_meshes(
         mesh.update(
             grouped_vertices.get(desc_idx, array("f")),
             indices,
-            grouped_primitive_contribution.get(desc_idx, array("f")),
+            grouped_primitive_lighting.get(desc_idx, array("f")),
         )
 
     for desc_idx in list(meshes.keys()):
@@ -254,7 +253,7 @@ def _sync_rotor_meshes(resources, batches):
             DynamicIndexedMesh(
                 resources.ctx,
                 resources.indexed_texmap_program,
-                "u_primitive_contribution",
+                "u_primitive_lighting",
                 attributes=("in_uv",),
                 vertex_format=INDEXED_TEXMAP_VERTEX_FORMAT,
                 vertex_floats=INDEXED_TEXMAP_VERTEX_FLOATS,
@@ -269,7 +268,7 @@ def _sync_rotor_meshes(resources, batches):
         mesh.update(
             batch["vertices"],
             batch["indices"],
-            batch["contribution"],
+            batch["lighting"],
         )
     while len(meshes) > len(batches):
         meshes.pop().release()
@@ -355,7 +354,9 @@ def _upload_indexed_texture(resources, desc_idx, texture_info):
         "remap_kind": texture_info.get("remap_kind", "identity"),
         "remap_kind_id": int(texture_info.get("remap_kind_id", 0)),
         "dark_ratio": tuple(texture_info.get("dark_ratio", (0.0, 0.0, 0.0))),
-        "fog_color": tuple(texture_info.get("fog_color", (0.0, 0.0, 0.0))),
+        "fog_terminal_color": tuple(
+            texture_info.get("fog_terminal_color", (0.0, 0.0, 0.0))
+        ),
         "s8_ratio": tuple(texture_info.get("s8_ratio", (0.0, 0.0, 0.0))),
         "texture_kind": texture_info.get("texture_kind", "billboard"),
         "animation_class": texture_info.get(
@@ -506,7 +507,7 @@ def _write_camera_uniforms(resources, camera, projection, *programs):
 
 
 def _write_fog_uniforms(resources, fog_distance_world):
-    fog_distance = max(1e-6, float(fog_distance_world))
+    fog_distance = float(fog_distance_world)
     resources.mode4_program["u_fog_distance"].value = fog_distance
     resources.indexed_texmap_program["u_fog_distance"].value = fog_distance
 
@@ -1026,39 +1027,6 @@ def _draw_geometry_to_scene(
     return True
 
 
-def _camera_direction(camera, scales):
-    right, up, forward = camera["right"], camera["up"], camera["forward"]
-    right_scale, up_scale, forward_scale = scales
-    direction = tuple(
-        right[index] * right_scale
-        + up[index] * up_scale
-        + forward[index] * forward_scale
-        for index in range(3)
-    )
-    length = max(math.sqrt(sum(value * value for value in direction)), 1e-6)
-    return tuple(value / length for value in direction)
-
-
-def _set_target_view_lighting(resources, camera):
-    programs = (
-        resources.textured_program,
-        resources.indexed_texmap_program,
-    )
-    if camera is None:
-        for program in programs:
-            program["u_target_lighting_enabled"].value = 0
-        return
-
-    key = _camera_direction(camera, (-0.65, 0.55, -0.52))
-    fill = _camera_direction(camera, (0.75, -0.05, -0.20))
-    rim = _camera_direction(camera, (0.25, 0.45, 0.86))
-    for program in programs:
-        program["u_target_lighting_enabled"].value = 1
-        program["u_target_key_direction"].value = key
-        program["u_target_fill_direction"].value = fill
-        program["u_target_rim_direction"].value = rim
-
-
 def _active_indexed_texture(resources, active_texture_descs, desc_idx):
     desc_idx = int(desc_idx)
     if desc_idx not in active_texture_descs:
@@ -1354,8 +1322,8 @@ def _write_indexed_texmap_material(program, entry):
     program["u_dark_ratio"].value = tuple(
         entry.get("dark_ratio", (0.0, 0.0, 0.0))
     )
-    program["u_fog_color"].value = tuple(
-        entry.get("fog_color", (0.0, 0.0, 0.0))
+    program["u_fog_terminal_color"].value = tuple(
+        entry.get("fog_terminal_color", (0.0, 0.0, 0.0))
     )
     program["u_s8_ratio"].value = tuple(
         entry.get("s8_ratio", (0.0, 0.0, 0.0))

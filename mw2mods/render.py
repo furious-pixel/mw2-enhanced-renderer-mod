@@ -59,7 +59,6 @@ from renderer.texture_state_audit import (
 from renderer.backend import (
     RendererResources,
 )
-from renderer.hud_renderer import TARGET_DISPLAY_ENHANCED_RENDERING
 from renderer.scene_state import (
     FIXED_16_16_SCALE,
     NATIVE_VIEW_DEPTH_MULTIPLIER,
@@ -653,7 +652,7 @@ def _snapshot_scene_state(modstate, gamemem, modgl):
     imaging_active = gamemem.read_reloc_u32(ADDR_IMAGING_ACTIVE)
     imaging_sub_mode = gamemem.read_reloc_u32(ADDR_IMAGING_SUB_MODE)
     fog_distance_world = (
-        max(1, gamemem.read_reloc_i32(ADDR_FOG_DISTANCE)) / FIXED_16_16_SCALE
+        gamemem.read_reloc_i32(ADDR_FOG_DISTANCE) / FIXED_16_16_SCALE
     )
 
     active_camera = prepare_smooth_cockpit(gamemem, read_camera(gamemem))
@@ -1458,10 +1457,7 @@ def renderer_target_detail_ready(modstate, gamemem, modgl):
             texture_cache = resource_store.texture_assets
         build_wireframe = int(target_view.display_mode) == 1
         extract_started = time.perf_counter()
-        flat_textured_faces = (
-            int(target_view.display_mode) == 2
-            and not TARGET_DISPLAY_ENHANCED_RENDERING
-        )
+        flat_textured_faces = int(target_view.display_mode) == 2
         camera_options = {
             **target_view.camera,
             "palette_rgb": snapshot["palette_rgb"],

@@ -4,12 +4,18 @@ from pathlib import Path
 
 SHADER_ROOT = Path(__file__).resolve().parent.parent / "shaders"
 _UNRESOLVED_TOKEN = re.compile(r"@[A-Z][A-Z0-9_]*@")
+_SHARED_SUBSTITUTIONS = {
+    "SCENE_LIGHTING_FUNCTIONS": (
+        SHADER_ROOT / "scene_lighting.glsl"
+    ).read_text(encoding="utf-8")
+}
 
 
 def load_shader(filename, substitutions=None):
     path = SHADER_ROOT / filename
     source = path.read_text(encoding="utf-8")
-    for name, value in (substitutions or {}).items():
+    values = {**_SHARED_SUBSTITUTIONS, **(substitutions or {})}
+    for name, value in values.items():
         source = source.replace(f"@{name}@", str(value))
 
     unresolved = _UNRESOLVED_TOKEN.search(source)

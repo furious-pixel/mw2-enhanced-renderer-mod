@@ -219,7 +219,7 @@ def texture_remap_metadata(texture):
         str(texture.get("remap_kind", "identity")),
         int(texture.get("remap_kind_id", 0)),
         rounded_tuple(texture.get("dark_ratio", (0.0, 0.0, 0.0))),
-        rounded_tuple(texture.get("fog_color", (0.0, 0.0, 0.0))),
+        rounded_tuple(texture.get("fog_terminal_color", (0.0, 0.0, 0.0))),
         rounded_tuple(texture.get("s8_ratio", (0.0, 0.0, 0.0))),
         int(texture.get("page", -1)),
         int(texture.get("selector", -1)),

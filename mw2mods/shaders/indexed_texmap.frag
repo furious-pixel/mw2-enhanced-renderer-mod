@@ -2,19 +2,15 @@
 
 uniform sampler2D u_palette;
 uniform sampler2D u_indexed_texture;
-uniform sampler2D u_primitive_contribution;
+uniform sampler2D u_primitive_lighting;
 uniform int u_remap_kind;
 uniform vec3 u_dark_ratio;
-uniform vec3 u_fog_color;
+uniform vec3 u_fog_terminal_color;
 uniform vec3 u_s8_ratio;
 uniform vec3 u_camera_position;
 uniform vec3 u_camera_forward;
 uniform float u_fog_distance;
 uniform float u_near_clip_plane;
-uniform int u_target_lighting_enabled;
-uniform vec3 u_target_key_direction;
-uniform vec3 u_target_fill_direction;
-uniform vec3 u_target_rim_direction;
 uniform int u_rotor_enhanced;
 uniform ivec2 u_rotor_texture_size;
 uniform int u_texture_role;
@@ -24,25 +20,7 @@ in vec2 v_uv;
 in vec3 v_world_pos;
 out vec4 frag_color;
 
-float enhanced_fog_atten(vec3 world_pos) {
-    float fog_distance = max(u_fog_distance, 1e-6);
-    vec3 delta = world_pos - u_camera_position;
-    float camera_distance = length(delta) * 4.0;
-    return camera_distance / fog_distance;
-}
-
-vec3 apply_target_lighting(vec3 base_rgb, vec3 world_pos) {
-    vec3 normal = normalize(cross(dFdx(world_pos), dFdy(world_pos)));
-    vec3 to_camera = normalize(u_camera_position - world_pos);
-    if (dot(normal, to_camera) < 0.0) {
-        normal = -normal;
-    }
-    float light = 0.02;
-    light += 0.52 * max(dot(normal, u_target_key_direction), 0.0);
-    light += 0.06 * max(dot(normal, u_target_fill_direction), 0.0);
-    light += 0.12 * max(dot(normal, u_target_rim_direction), 0.0);
-    return base_rgb * clamp(light, 0.0, 1.0);
-}
+@SCENE_LIGHTING_FUNCTIONS@
 
 float rotor_hash11(float p) {
     p = fract(p * 0.1031);
@@ -213,30 +191,22 @@ void main() {
         ) / 256.0;
         base_rgb = texture(u_palette, vec2(palette_u, 0.5)).rgb;
     }
-    if (u_target_lighting_enabled != 0) {
-        frag_color = vec4(
-            apply_target_lighting(base_rgb, v_world_pos),
-            output_alpha
-        );
-        return;
-    }
-    float contribution = texelFetch(
-        u_primitive_contribution,
+    float lighting_state = texelFetch(
+        u_primitive_lighting,
         ivec2(gl_PrimitiveID, 0),
         0
     ).r;
-    float offset = clamp(
-        contribution - enhanced_fog_atten(v_world_pos),
-        0.0,
-        15.0
+    float final_shade_level = finalShadeLevel(
+        lighting_state,
+        v_world_pos
     );
-    float light_t = clamp(offset / 15.0, 0.0, 1.0);
+    float light_t = clamp(final_shade_level / 15.0, 0.0, 1.0);
     vec3 rgb = base_rgb;
     if (u_remap_kind == 1 || u_remap_kind == 2) {
         vec3 factor = mix(u_dark_ratio, vec3(1.0), light_t);
         rgb = base_rgb * factor;
     } else if (u_remap_kind == 3) {
-        rgb = mix(u_fog_color, base_rgb, light_t);
+        rgb = mix(u_fog_terminal_color, base_rgb, light_t);
     } else if (u_remap_kind == 4) {
         vec3 mid = base_rgb * u_s8_ratio;
         if (light_t >= (8.0 / 15.0)) {
@@ -244,7 +214,7 @@ void main() {
             rgb = mix(mid, base_rgb, u);
         } else {
             float u = light_t / (8.0 / 15.0);
-            rgb = mix(u_fog_color, mid, u);
+            rgb = mix(u_fog_terminal_color, mid, u);
         }
     }
     frag_color = vec4(rgb, output_alpha);
