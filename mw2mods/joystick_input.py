@@ -7,6 +7,7 @@ from mod_init import load_mod_config
 
 
 ADDR_CALLSITE_ENTITY_UPDATE_ALL = 0x0002CE84
+ADDR_MISSION_START_CALL = 0x0002CD11
 ADDR_INPUT_TURRET_PITCH = 0x0A83F4
 ADDR_INPUT_TURRET_YAW = 0x0A83F8
 ADDR_INPUT_THROTTLE = 0x0A83FC
@@ -323,6 +324,12 @@ def _chassis_turn_value(raw_value, conf):
     if abs(chassis_turn) < CHASSIS_TURN_DEADZONE:
         return 0
     return chassis_turn
+
+
+@modhook("MW2.EXE", ADDR_MISSION_START_CALL, "call")
+def reset_joystick_input(modstate, _gamemem):
+    modstate.joystick_input_relative_turret_yaw = 0.0
+    modstate.joystick_input_relative_turret_pitch = 0.0
 
 
 @modhook("MW2.EXE", ADDR_CALLSITE_ENTITY_UPDATE_ALL, "call")
