@@ -12,6 +12,10 @@ from .hud_3d_views import (
 from .hud_atlas import TARGET_CARET_BY_DIRECTION, TARGET_NAV_CIRCLE
 from .hud_radar import EMPTY_RADAR_HUD, snapshot_radar_hud
 from .projection import perspective_projection_info
+from .hud_meter_spans import (
+    METER_GROW_LEFT_TO_RIGHT,
+    METER_GROW_SYMMETRIC,
+)
 from .hud_sprites import (
     HudSprite,
     decode_hud_sprite,
@@ -197,37 +201,31 @@ class CockpitHudRect:
 
 
 @dataclass(frozen=True, slots=True)
-class CockpitHudMeterRect:
-    base_color_index: int
+class CockpitHudBarMeter:
     left: float
     top: float
     right: float
     bottom: float
-    shade_axis: str
-
-
-@dataclass(frozen=True, slots=True)
-class CockpitHudVerticalMeter:
-    current_color_index: int
-    remaining_color_index: int
-    left: float
-    top: float
-    right: float
-    split: float
-    bottom: float
+    amount: float
+    axis: str
+    grow: int
+    fill_color_index: int
+    empty_color_index: int
+    edge_color_index: int
     enhanced: bool
 
 
 @dataclass(frozen=True, slots=True)
 class CockpitHudThrottleMeter:
     border_color_index: int
-    base_color_index: int
+    fill_color_index: int
     left: float
     top: float
     right: float
     bottom: float
-    fill_top: float
-    fill_bottom: float
+    rest_y: float
+    amount: float
+    reverse: bool
     enhanced: bool
 
 
@@ -551,25 +549,36 @@ def _append_fill(fills, color_index, left, top, right, bottom):
     )
 
 
-def _append_meter_fill(
+def _append_bar_meter(
     fills,
-    base_color_index,
     left,
     top,
     right,
     bottom,
-    shade_axis,
+    amount,
+    *,
+    axis,
+    grow,
+    fill_color,
+    empty_color,
+    enhanced,
+    edge_color=0,
 ):
     if right <= left or bottom <= top:
         return
     fills.append(
-        CockpitHudMeterRect(
-            base_color_index=max(0, min(0xFF, int(base_color_index))),
+        CockpitHudBarMeter(
             left=float(left),
             top=float(top),
             right=float(right),
             bottom=float(bottom),
-            shade_axis=str(shade_axis),
+            amount=float(amount),
+            axis=str(axis),
+            grow=int(grow),
+            fill_color_index=max(0, min(0xFF, int(fill_color))),
+            empty_color_index=max(0, min(0xFF, int(empty_color))),
+            edge_color_index=max(0, min(0xFF, int(edge_color))),
+            enhanced=bool(enhanced),
         )
     )
 
@@ -623,115 +632,6 @@ def _speed_kph(mech_data):
     magnitude = (scaled * 3) // 2
     reverse = struct.unpack_from("<i", mech_data, 0x2C)[0] < 0
     return (-magnitude if reverse else magnitude), reverse
-
-
-def _scaled_throttle_extent(
-    value,
-    source_maximum,
-    draw_maximum,
-    fractional=True,
-):
-    if not fractional:
-        source_maximum = max(1, int(source_maximum))
-        draw_maximum = max(0, int(draw_maximum))
-        value = max(0, min(int(value), source_maximum))
-        if value == 0:
-            return 0
-        scaled = (value * draw_maximum + source_maximum // 2) // source_maximum
-        return min(draw_maximum, scaled + 1)
-    source_maximum = max(1, source_maximum)
-    draw_maximum = max(0, draw_maximum)
-    value = max(0.0, min(value, source_maximum))
-    if value <= 0.0:
-        return 0.0
-    return min(draw_maximum, value * draw_maximum / source_maximum + 1.0)
-
-
-def _append_horizontal_meter(
-    fills,
-    pane_left,
-    pane_top,
-    x,
-    y,
-    width,
-    height,
-    segments,
-    enhanced=False,
-):
-    if width <= 0 or height <= 0:
-        return
-    cursor = 0
-    for segment_width, base_color in segments:
-        if enhanced:
-            segment_width = max(
-                0.0,
-                min(float(segment_width), width - cursor),
-            )
-        else:
-            segment_width = max(0, min(int(segment_width), width - cursor))
-        if segment_width > 0:
-            if enhanced:
-                _append_meter_fill(
-                    fills,
-                    base_color,
-                    pane_left + x + cursor,
-                    pane_top + y,
-                    pane_left + x + cursor + segment_width,
-                    pane_top + y + height,
-                    "y",
-                )
-            else:
-                for shade_top, shade_bottom, color_index in _shade_bands(
-                    height, base_color
-                ):
-                    _append_fill(
-                        fills,
-                        color_index,
-                        pane_left + x + cursor,
-                        pane_top + y + shade_top,
-                        pane_left + x + cursor + segment_width,
-                        pane_top + y + shade_bottom,
-                    )
-            cursor += segment_width
-        if cursor >= width:
-            break
-
-
-def _append_clipped_split_vertical_meter(
-    fills,
-    x,
-    y,
-    current,
-    maximum,
-    width,
-    current_color,
-    remaining_color,
-    clip_rect,
-    *,
-    enhanced,
-):
-    if width <= 0 or maximum <= 0:
-        return
-    clip_left, clip_top, clip_right, clip_bottom = clip_rect
-    left = max(x, clip_left)
-    top = max(y, clip_top)
-    right = min(x + width, clip_right)
-    bottom = min(y + maximum, clip_bottom)
-    if right <= left or bottom <= top:
-        return
-    split = max(top, min(y + current, bottom))
-    fills.append(
-        CockpitHudVerticalMeter(
-            current_color_index=max(0, min(0xFF, int(current_color))),
-            remaining_color_index=max(0, min(0xFF, int(remaining_color))),
-            left=float(left),
-            top=float(top),
-            right=float(right),
-            split=float(split),
-            bottom=float(bottom),
-            enhanced=bool(enhanced),
-        )
-    )
 
 
 def _append_clipped_horizontal_meter(
@@ -1331,18 +1231,30 @@ def _snapshot_mfd(
                 current = max(0, min(current, maximum))
                 x = left + origin_x + x_offset
                 y = top + origin_y + htal_y_offset
-                _append_clipped_split_vertical_meter(
-                    fills,
-                    x,
-                    y,
-                    current,
-                    maximum,
-                    width,
-                    0x0F,
-                    remaining_color,
-                    htal_clip_rect,
-                    enhanced=enhanced_htal_meters,
-                )
+                clip_left, clip_top, clip_right, clip_bottom = htal_clip_rect
+                bar_left = max(x, clip_left)
+                bar_top = max(y, clip_top)
+                bar_right = min(x + width, clip_right)
+                bar_bottom = min(y + maximum, clip_bottom)
+                bar_height = bar_bottom - bar_top
+                if bar_right > bar_left and bar_height > 0:
+                    filled = max(
+                        0.0,
+                        min(bar_bottom, y + current) - bar_top,
+                    )
+                    _append_bar_meter(
+                        fills,
+                        bar_left,
+                        bar_top,
+                        bar_right,
+                        bar_bottom,
+                        filled / bar_height,
+                        axis="y",
+                        grow=METER_GROW_LEFT_TO_RIGHT,
+                        fill_color=0x0F,
+                        empty_color=remaining_color,
+                        enhanced=enhanced_htal_meters,
+                    )
         return None
 
     camera_view = snapshot_mfd_camera_view(
@@ -3125,46 +3037,32 @@ def snapshot_cockpit_hud(
                     gamemem.read_runtime_bytes(control + 0x08, 0x28)
                 )
                 reverse = control_data[0x27] != 0
-            inner_top = outer_top + 1
-            inner_bottom = outer_bottom
             if reverse:
-                height = _scaled_throttle_extent(
-                    (
-                        -throttle_current / 65536.0
-                        if enhanced_power_meters
-                        else -(throttle_current >> 16)
-                    ),
-                    max_height // 2,
-                    inner_bottom - neutral_y - 1,
-                    enhanced_power_meters,
+                source_max = max(1.0, float(max_height // 2))
+                raw_value = (
+                    -throttle_current / 65536.0
+                    if enhanced_power_meters
+                    else float(-(throttle_current >> 16))
                 )
-                fill_top = max(inner_top, neutral_y)
-                fill_bottom = min(inner_bottom, neutral_y + height + 1)
-                fill_color = 0x07
             else:
-                height = _scaled_throttle_extent(
-                    (
-                        throttle_current / 65536.0
-                        if enhanced_power_meters
-                        else throttle_current >> 16
-                    ),
-                    max_height,
-                    neutral_y - inner_top,
-                    enhanced_power_meters,
+                source_max = max(1.0, float(max_height))
+                raw_value = (
+                    throttle_current / 65536.0
+                    if enhanced_power_meters
+                    else float(throttle_current >> 16)
                 )
-                fill_top = max(inner_top, neutral_y - height)
-                fill_bottom = min(inner_bottom, neutral_y + 1)
-                fill_color = 0x0F
+            amount = max(0.0, min(1.0, raw_value / source_max))
             fills.append(
                 CockpitHudThrottleMeter(
                     border_color_index=0x0A,
-                    base_color_index=fill_color,
+                    fill_color_index=0x07 if reverse else 0x0F,
                     left=outer_left,
                     top=outer_top,
                     right=outer_right + 1,
                     bottom=outer_bottom + 1,
-                    fill_top=fill_top,
-                    fill_bottom=fill_bottom,
+                    rest_y=float(neutral_y),
+                    amount=amount,
+                    reverse=bool(reverse),
                     enhanced=bool(enhanced_power_meters),
                 )
             )
@@ -3180,46 +3078,41 @@ def snapshot_cockpit_hud(
                 if enhanced_power_meters
                 else current_fp >> 16
             )
-            fill = max(
-                0,
-                min(fill_pixels, bar_width),
+            if bar_width <= 0:
+                continue
+            amount = max(0.0, min(1.0, float(fill_pixels) / float(bar_width)))
+            _append_bar_meter(
+                fills,
+                left + bar_x,
+                top + bar_y,
+                left + bar_x + bar_width,
+                top + bar_y + bar_height,
+                amount,
+                axis="x",
+                grow=METER_GROW_SYMMETRIC,
+                fill_color=0x0B,
+                empty_color=0x07,
+                edge_color=0x03,
+                enhanced=enhanced_power_meters,
             )
-            if fill == 0:
-                segments = ((bar_width, 0x07),)
-            elif fill >= bar_width:
-                segments = ((bar_width, 0x0B),)
-            else:
-                edge = min(fill, bar_width - fill)
-                middle_color = 0x07 if fill * 2 < bar_width else 0x0B
-                segments = (
-                    (edge, 0x03),
-                    (bar_width - edge * 2, middle_color),
-                    (edge, 0x03),
-                )
+            continue
         elif callback == CALLBACK_HEAT_RATE:
             bar_x, bar_y, bar_width, bar_height = struct.unpack_from(
                 "<4i", meter_data, 0x60
             )
             current = struct.unpack_from("<i", meter_data, 0x18)[0]
-            if enhanced_power_meters:
-                fill = max(
-                    0.0,
-                    min(
-                        bar_width,
-                        current * bar_width / 0x300,
-                    ),
-                )
-            else:
-                fill = max(
-                    0,
-                    min(bar_width, current * bar_width // 0x300),
-                )
             if current < 1:
-                segments = ((bar_width, 0x07),)
+                amount = 0.0
+                fill_color = 0x07
+                empty_color = 0x07
             elif current < 0x300:
-                segments = ((fill, 0x03), (bar_width - fill, 0x07))
+                amount = current / 0x300
+                fill_color = 0x03
+                empty_color = 0x07
             else:
-                segments = ((fill, 0x0B), (bar_width - fill, 0x03))
+                amount = min(1.0, current / 0x300)
+                fill_color = 0x0B
+                empty_color = 0x03
         else:
             bar_x, bar_y, bar_width, bar_height = struct.unpack_from(
                 "<4i", meter_data, 0x70
@@ -3229,29 +3122,21 @@ def snapshot_cockpit_hud(
             current = struct.unpack_from("<i", meter_data, 0x24)[0]
             if current < 0:
                 continue
-            fill = 0
-            if current > 0:
-                if enhanced_power_meters:
-                    fill = min(
-                        bar_width,
-                        current * bar_width / 0x71C,
-                    )
-                else:
-                    fill = min(
-                        bar_width,
-                        (current * bar_width + 0x71B) // 0x71C,
-                    )
-            segments = ((fill, 0x0F), (bar_width - fill, 0x0B))
+            amount = 0.0 if current <= 0 else min(1.0, current / 0x71C)
+            fill_color = 0x0F
+            empty_color = 0x0B
 
-        _append_horizontal_meter(
+        _append_bar_meter(
             fills,
-            left,
-            top,
-            bar_x,
-            bar_y,
-            bar_width,
-            bar_height,
-            segments,
+            left + bar_x,
+            top + bar_y,
+            left + bar_x + bar_width,
+            top + bar_y + bar_height,
+            amount,
+            axis="x",
+            grow=METER_GROW_LEFT_TO_RIGHT,
+            fill_color=fill_color,
+            empty_color=empty_color,
             enhanced=enhanced_power_meters,
         )
 

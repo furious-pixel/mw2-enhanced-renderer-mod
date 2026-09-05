@@ -17,9 +17,9 @@ from .hud_cockpit import (
     COMPASS_LONG_TICK_HEIGHT,
     COMPASS_TEXT_SLOT_BASE,
     COMPASS_TEXT_SLOT_COUNT,
+    CockpitHudBarMeter,
     CockpitHudThrottleMeter,
     CockpitHudText,
-    CockpitHudVerticalMeter,
     MFD_CAMERA_TEXT_SLOT_BASE,
     MFD_CAMERA_TEXT_SLOT_COUNT,
     STATIC_SHAPE_LEFT_EDGE,
@@ -27,6 +27,16 @@ from .hud_cockpit import (
     _shade_bands,
 )
 from .hud_layout import BASE_FONT_SIZE, HudLayoutContext
+from .hud_meter_spans import (
+    bar_meter_boxes,
+    clip_inclusive,
+    half_open_from_inclusive,
+    inset_inclusive_rect,
+    outline_stroke_pixels,
+    round_output_pixel as _round_output_pixel,
+    snap_half_open_to_inclusive,
+    throttle_fill_rows,
+)
 from .hud_atlas import (
     TARGET_BRACKET_BOTTOM_LEFT,
     TARGET_BRACKET_BOTTOM_RIGHT,
@@ -76,10 +86,6 @@ def _hud_clip_rect(rect, origin_x, scale):
     )
 
 
-def _round_output_pixel(value):
-    return int(math.floor(float(value) + 0.5))
-
-
 def _pixel_border_geometry(
     rect,
     origin_x,
@@ -107,38 +113,6 @@ def _pixel_border_geometry(
         outer_bottom - border_width,
     )
     return outer, inner
-
-
-def _throttle_meter_pixel_geometry(
-    meter,
-    origin_x,
-    origin_y,
-    scale_x,
-    scale_y,
-):
-    outer, inner = _pixel_border_geometry(
-        meter,
-        origin_x,
-        origin_y,
-        scale_x,
-        scale_y,
-    )
-    inner_left, inner_top, inner_right, inner_bottom = inner
-    reference_height = max(1, meter.bottom - meter.top - 2)
-    output_height = max(0, inner_bottom - inner_top)
-    fill_top = inner_top + _round_output_pixel(
-        (meter.fill_top - meter.top - 1) * output_height / reference_height
-    )
-    fill_bottom = inner_top + _round_output_pixel(
-        (meter.fill_bottom - meter.top - 1) * output_height / reference_height
-    )
-    if fill_bottom <= fill_top:
-        fill_bottom = min(inner_bottom, fill_top + 1)
-    return (
-        outer,
-        inner,
-        (inner_left, fill_top, inner_right, fill_bottom),
-    )
 
 
 def _scene_projected_transform(
@@ -509,7 +483,7 @@ def _write_enhanced_meter_segment(
         )
 
 
-def _write_native_vertical_meter_segment(
+def _write_native_meter_segment(
     writer,
     palette_rgb,
     left,
@@ -517,40 +491,73 @@ def _write_native_vertical_meter_segment(
     right,
     bottom,
     base_index,
+    shade_axis,
 ):
     if right <= left or bottom <= top:
         return
-    width = int(right - left)
-    first = width // 4
-    second = width // 2
-    third = width * 3 // 4
-    writer.rect(
-        left,
-        top,
-        left + first,
-        bottom,
-        (*palette_color_float(palette_rgb, int(base_index) - 1), 1.0),
-    )
-    writer.rect(
-        left + first,
-        top,
-        left + second,
-        bottom,
-        (*palette_color_float(palette_rgb, int(base_index)), 1.0),
-    )
-    writer.rect(
-        left + second,
-        top,
-        left + third,
-        bottom,
-        (*palette_color_float(palette_rgb, int(base_index) - 1), 1.0),
-    )
-    writer.rect(
-        left + third,
-        top,
-        right,
-        bottom,
-        (*palette_color_float(palette_rgb, int(base_index) - 2), 1.0),
+    thickness = int((right - left) if shade_axis == "x" else (bottom - top))
+    for start, end, color_index in _shade_bands(thickness, base_index):
+        if end <= start:
+            continue
+        if shade_axis == "x":
+            writer.rect(
+                left + start,
+                top,
+                left + end,
+                bottom,
+                (*palette_color_float(palette_rgb, int(color_index)), 1.0),
+            )
+        else:
+            writer.rect(
+                left,
+                top + start,
+                right,
+                top + end,
+                (*palette_color_float(palette_rgb, int(color_index)), 1.0),
+            )
+
+
+def _emit_meter_box(
+    writer,
+    palette_rgb,
+    left,
+    top,
+    right,
+    bottom,
+    color_index,
+    enhanced,
+    shade_axis,
+    meter_style,
+):
+    draw_left, draw_right = half_open_from_inclusive(left, right)
+    draw_top, draw_bottom = half_open_from_inclusive(top, bottom)
+    if draw_right <= draw_left or draw_bottom <= draw_top:
+        return
+    if enhanced:
+        _write_enhanced_meter_segment(
+            writer,
+            palette_rgb,
+            draw_left,
+            draw_top,
+            draw_right,
+            draw_bottom,
+            color_index,
+            shade_axis,
+            int(meter_style["meter_dark_offset"]),
+            int(meter_style["meter_light_offset"]),
+            int(meter_style["meter_peak_offset"]),
+            float(meter_style["meter_peak_position"]),
+        )
+        return
+    _write_native_meter_segment(
+        writer,
+        palette_rgb,
+        draw_left,
+        draw_top,
+        draw_right,
+        draw_bottom,
+        color_index,
+        shade_axis,
     )
 
 
@@ -573,10 +580,6 @@ def _fill_hud_rects(
 ):
     if not rects:
         return
-    meter_dark_offset = int(meter_style["meter_dark_offset"])
-    meter_light_offset = int(meter_style["meter_light_offset"])
-    meter_peak_offset = int(meter_style["meter_peak_offset"])
-    meter_peak_position = float(meter_style["meter_peak_position"])
     writer = resources.overlay_rect_writer
     writer.reset()
     size_scale_x = scale_x if size_scale_x is None else size_scale_x
@@ -608,147 +611,112 @@ def _fill_hud_rects(
             )
             writer.border(outer, inner, color)
             continue
-        if isinstance(rect, CockpitHudVerticalMeter):
-            left = _round_output_pixel(
-                rect_origin_x + rect.left * rect_scale_x
+        if isinstance(rect, CockpitHudBarMeter):
+            left, right = snap_half_open_to_inclusive(
+                rect_origin_x + rect.left * rect_scale_x,
+                rect_origin_x + rect.right * rect_scale_x,
             )
-            top = _round_output_pixel(
-                rect_origin_y + rect.top * rect_scale_y
-            )
-            right = _round_output_pixel(
-                rect_origin_x + rect.right * rect_scale_x
-            )
-            split = _round_output_pixel(
-                rect_origin_y + rect.split * rect_scale_y
-            )
-            bottom = _round_output_pixel(
-                rect_origin_y + rect.bottom * rect_scale_y
+            top, bottom = snap_half_open_to_inclusive(
+                rect_origin_y + rect.top * rect_scale_y,
+                rect_origin_y + rect.bottom * rect_scale_y,
             )
             if clip_left is not None:
-                left = max(left, clip_left)
-                top = max(top, clip_top)
-                right = min(right, clip_right)
-                bottom = min(bottom, clip_bottom)
-            split = max(top, min(split, bottom))
-            if right <= left or bottom <= top:
+                clipped_x = clip_inclusive(left, right, clip_left, clip_right - 1)
+                clipped_y = clip_inclusive(top, bottom, clip_top, clip_bottom - 1)
+                if clipped_x is None or clipped_y is None:
+                    continue
+                left, right = clipped_x
+                top, bottom = clipped_y
+            if right < left or bottom < top:
                 continue
-            if rect.enhanced:
-                _write_enhanced_meter_segment(
-                    writer,
-                    palette_rgb,
-                    left,
-                    top,
-                    right,
-                    split,
-                    rect.current_color_index,
-                    "x",
-                    meter_dark_offset,
-                    meter_light_offset,
-                    meter_peak_offset,
-                    meter_peak_position,
-                )
-                _write_enhanced_meter_segment(
-                    writer,
-                    palette_rgb,
-                    left,
-                    split,
-                    right,
-                    bottom,
-                    rect.remaining_color_index,
-                    "x",
-                    meter_dark_offset,
-                    meter_light_offset,
-                    meter_peak_offset,
-                    meter_peak_position,
-                )
-            else:
-                _write_native_vertical_meter_segment(
-                    writer,
-                    palette_rgb,
-                    left,
-                    top,
-                    right,
-                    split,
-                    rect.current_color_index,
-                )
-                _write_native_vertical_meter_segment(
-                    writer,
-                    palette_rgb,
-                    left,
-                    split,
-                    right,
-                    bottom,
-                    rect.remaining_color_index,
-                )
-            continue
-        if isinstance(rect, CockpitHudThrottleMeter):
-            outer, inner, fill = _throttle_meter_pixel_geometry(
-                rect,
-                rect_origin_x,
-                rect_origin_y,
-                rect_scale_x,
-                rect_scale_y,
-            )
-            border_color = (
-                *palette_color_float(palette_rgb, rect.border_color_index),
-                1.0,
-            )
-            writer.border(outer, inner, border_color)
-
-            left, top, right, bottom = fill
-            base_index = int(rect.base_color_index)
-            shade_axis = "x"
-            if not rect.enhanced and right > left and bottom > top:
-                for shade_left, shade_right, color_index in _shade_bands(
-                    int(right - left),
-                    base_index,
-                ):
-                    writer.rect(
-                        left + shade_left,
-                        top,
-                        left + shade_right,
-                        bottom,
-                        (*palette_color_float(palette_rgb, color_index), 1.0),
-                    )
-                continue
-        else:
-            shade_axis = getattr(rect, "shade_axis", None)
-        if shade_axis in ("x", "y") and not isinstance(
-            rect,
-            CockpitHudThrottleMeter,
-        ):
-            left = rect_origin_x + rect.left * rect_scale_x
-            top = rect_origin_y + rect.top * rect_scale_y
-            right = rect_origin_x + rect.right * rect_scale_x
-            bottom = rect_origin_y + rect.bottom * rect_scale_y
-            # Preserve fractional HUD motion through layout scaling, then snap
-            # only the completed physical-pixel edges.
-            left = _round_output_pixel(left)
-            top = _round_output_pixel(top)
-            right = _round_output_pixel(right)
-            bottom = _round_output_pixel(bottom)
-            if clip_left is not None:
-                left = max(left, clip_left)
-                top = max(top, clip_top)
-                right = min(right, clip_right)
-                bottom = min(bottom, clip_bottom)
-            base_index = int(rect.base_color_index)
-        if shade_axis in ("x", "y"):
-            if right <= left or bottom <= top:
-                continue
-            _write_enhanced_meter_segment(
-                writer,
-                palette_rgb,
+            shade_axis = "y" if rect.axis == "x" else "x"
+            boxes = bar_meter_boxes(
                 left,
                 top,
                 right,
                 bottom,
-                base_index,
-                shade_axis,
-                meter_dark_offset,
-                meter_light_offset,
-                meter_peak_offset,
-                meter_peak_position,
+                rect.amount,
+                rect.axis,
+                rect.grow,
+                rect.fill_color_index,
+                rect.empty_color_index,
+                rect.edge_color_index,
+            )
+            for box_left, box_top, box_right, box_bottom, color_index in boxes:
+                _emit_meter_box(
+                    writer,
+                    palette_rgb,
+                    box_left,
+                    box_top,
+                    box_right,
+                    box_bottom,
+                    color_index,
+                    rect.enhanced,
+                    shade_axis,
+                    meter_style,
+                )
+            continue
+        if isinstance(rect, CockpitHudThrottleMeter):
+            outer_left, outer_right = snap_half_open_to_inclusive(
+                rect_origin_x + rect.left * rect_scale_x,
+                rect_origin_x + rect.right * rect_scale_x,
+            )
+            outer_top, outer_bottom = snap_half_open_to_inclusive(
+                rect_origin_y + rect.top * rect_scale_y,
+                rect_origin_y + rect.bottom * rect_scale_y,
+            )
+            stroke = outline_stroke_pixels(rect_scale_x, rect_scale_y)
+            inner_left, inner_top, inner_right, inner_bottom, stroke = (
+                inset_inclusive_rect(
+                    outer_left,
+                    outer_top,
+                    outer_right,
+                    outer_bottom,
+                    stroke,
+                )
+            )
+            outer = (
+                outer_left,
+                outer_top,
+                outer_right + 1,
+                outer_bottom + 1,
+            )
+            inner = (
+                inner_left,
+                inner_top,
+                inner_right + 1,
+                inner_bottom + 1,
+            )
+            writer.border(
+                outer,
+                inner,
+                (
+                    *palette_color_float(palette_rgb, rect.border_color_index),
+                    1.0,
+                ),
+            )
+            fill_rows = throttle_fill_rows(
+                inner_top,
+                inner_bottom,
+                rect_origin_y + rect.rest_y * rect_scale_y,
+                rect.amount,
+                rect.reverse,
+                max(1, stroke),
+            )
+            if fill_rows is None:
+                continue
+            fill_top, fill_bottom = fill_rows
+            _emit_meter_box(
+                writer,
+                palette_rgb,
+                inner_left,
+                fill_top,
+                inner_right,
+                fill_bottom,
+                rect.fill_color_index,
+                rect.enhanced,
+                "x",
+                meter_style,
             )
             continue
 
