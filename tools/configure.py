@@ -44,6 +44,10 @@ SUPPORTED_GAME_FILES = (
             "c4a42d0d448de50a75c7a41f40bb7146"
             "c6afa70d646cc18e6bacb7850737903f"
         ),
+        "unpatched_sha256": (
+            "a3da505f567146311928f78a42346433"
+            "05652b89a87b96d8d6a831c71016deec"
+        ),
     },
     {
         "name": "MW2.PRJ",
@@ -75,6 +79,7 @@ def _installation_state():
             "size": None,
             "sha256": None,
             "matches": False,
+            "is_unpatched": False,
             "error": None,
         }
         if result["exists"]:
@@ -84,11 +89,15 @@ def _installation_state():
                 result["matches"] = (
                     result["sha256"] == supported_file["expected_sha256"]
                 )
+                result["is_unpatched"] = (
+                    result["sha256"] == supported_file.get("unpatched_sha256")
+                )
             except OSError as exc:
                 result["error"] = str(exc)
         files.append(result)
     return {
         "ok": all(file_state["matches"] for file_state in files),
+        "needs_patch": any(file_state["is_unpatched"] for file_state in files),
         "directory": str(GAME_INSTALL_DIR),
         "files": files,
     }

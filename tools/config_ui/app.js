@@ -4,7 +4,7 @@ const app = {
   schema: [],
   values: {},
   activeSection: "installation",
-  installation: {ok: false, directory: "", files: []},
+  installation: {ok: false, needs_patch: false, directory: "", files: []},
   saveTimers: new Map(),
   configPaths: {},
   resetFiles: [],
@@ -157,13 +157,14 @@ function rangeProgress(definition, value) {
 
 function renderNavigation() {
   const nav = $("#section-nav");
+  const installationStatus = installationSummary(app.installation);
   nav.innerHTML = navigationSections().map((section) => `
     <button class="nav-button ${section.id === app.activeSection ? "active" : ""}" data-section="${section.id}">
       <span class="nav-icon">${icons[section.icon] || icons.tune}</span>
       <span class="nav-label">${escapeHtml(section.label)}</span>
       ${section.id === "installation" ? `
-        <span class="nav-result ${app.installation.ok ? "ok" : "warning"}" aria-label="${app.installation.ok ? "Installation verified" : "Installation warning"}">
-          ${app.installation.ok ? "✓" : "!"}
+        <span class="nav-result ${installationStatus.kind}" aria-label="${installationStatus.label}">
+          ${installationStatus.icon}
         </span>` : ""}
     </button>
   `).join("");
@@ -218,20 +219,32 @@ function formatFileSize(size) {
 
 function installationFileStatus(file) {
   if (file.matches) return {kind: "ok", label: "verified"};
+  if (file.is_unpatched) return {kind: "warning", label: "version 1.0 — patch required"};
   if (!file.exists) return {kind: "error", label: "missing"};
   if (file.error) return {kind: "error", label: "could not read"};
   return {kind: "warning", label: "modified or unsupported"};
 }
 
+function installationSummary(installation) {
+  if (installation.ok) {
+    return {kind: "ok", icon: "✓", label: "Supported files verified"};
+  }
+  if (installation.needs_patch) {
+    return {kind: "warning", icon: "!", label: "Version 1.1 patch required"};
+  }
+  return {kind: "warning", icon: "!", label: "Installation warning"};
+}
+
 function renderInstallation() {
   const installation = app.installation;
+  const summary = installationSummary(installation);
   const grid = $("#groups-grid");
   grid.classList.add("single-column");
   grid.innerHTML = `
     <article class="settings-card verification-card ${installation.ok ? "verified" : "warning"}">
       <header class="compact-panel-heading">
         <h2>File verification</h2>
-        <span class="verification-result ${installation.ok ? "ok" : "warning"}">${installation.ok ? "✓ Supported files verified" : "! Installation warning"}</span>
+        <span class="verification-result ${summary.kind}">${summary.icon} ${summary.label}</span>
       </header>
       <div class="installation-files">
         ${installation.files.map((file) => {
@@ -276,12 +289,20 @@ function renderInstallation() {
         ├── MW2.EXE
         ├── MW2.PRJ
         └── … all other installed game files</pre>
-        <p class="optional-step">
-          <strong>Optional:</strong> If your DOS copy is not already patched, download the
-          <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>,
-          save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>, and run the installer.
-          When patching is complete, run <code>configure.bat</code> again and confirm that both game files are verified.
-        </p>
+        ${installation.needs_patch ? `
+          <p class="optional-step">
+            <strong>Version 1.1 patch required:</strong> This <code>MW2.EXE</code> is the supported unpatched DOS version.
+            Download the <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>
+            and save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>. Run the installer, then choose option 2
+            in the DOSBox-X window that opens. When it reports <code>Version 1.1 patching process complete</code>, type <code>EXIT</code>.
+            Run <code>configure.bat</code> again and confirm that both game files are verified.
+          </p>` : `
+          <p class="optional-step">
+            <strong>Optional:</strong> If your DOS copy is not already patched, download the
+            <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>,
+            save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>, and run the installer.
+            When patching is complete, run <code>configure.bat</code> again and confirm that both game files are verified.
+          </p>`}
         <div class="installation-step-heading">
           <span>2</span>
           <div><h3>Configure the DOS game</h3></div>
@@ -1136,7 +1157,7 @@ async function initialize() {
     const state = await window.pywebview.api.get_state();
     app.schema = state.schema;
     app.values = state.values;
-    app.installation = state.installation || {ok: false, directory: "", files: []};
+    app.installation = state.installation || {ok: false, needs_patch: false, directory: "", files: []};
     app.configPaths = state.config_paths || {};
     app.resetFiles = state.reset_files || [];
     app.joystickSnapshot = state.joysticks || {generation: 0, devices: []};
