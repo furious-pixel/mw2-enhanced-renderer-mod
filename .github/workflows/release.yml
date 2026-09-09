@@ -134,6 +134,7 @@ jobs:
             "THIRD_PARTY_NOTICES.md",
             "VERSION",
             "configure.bat",
+            "install_mw2_v11_patch.bat",
             "dosbox-mw2.conf",
             "launchmw2_30fps.bat",
             "launchmw2_60fps.bat",

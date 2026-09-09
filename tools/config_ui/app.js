@@ -277,9 +277,10 @@ function renderInstallation() {
         ├── MW2.PRJ
         └── … all other installed game files</pre>
         <p class="optional-step">
-          <strong>Optional:</strong> If your DOS copy is not already patched, the
-          <a href="https://www.pcgamingwiki.com/wiki/MechWarrior_2%3A_31st_Century_Combat#Patches" target="_blank" rel="noopener noreferrer">PCGamingWiki patches section</a>
-          links to the correct DOS v1.1 patch.
+          <strong>Optional:</strong> If your DOS copy is not already patched, download the
+          <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>,
+          save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>, and run the installer.
+          When patching is complete, run <code>configure.bat</code> again and confirm that both game files are verified.
         </p>
         <div class="installation-step-heading">
           <span>2</span>

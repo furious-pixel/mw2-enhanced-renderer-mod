@@ -190,19 +190,25 @@ MW2-EnhancedRenderer/
 ├── bin/
 ├── mw2mods/
 ├── configure.bat
+├── install_mw2_v11_patch.bat
 ├── launchmw2_30fps.bat
 ├── launchmw2_60fps.bat
 └── launchmw2_72fps.bat
 ```
 
-If your DOS copy is not already updated, the
-[PCGamingWiki patches section](https://www.pcgamingwiki.com/wiki/MechWarrior_2%3A_31st_Century_Combat#Patches)
-links to the correct DOS v1.1 patch.
+If your DOS copy is not already updated:
 
-Run `configure.bat`, open **Game Installation**, and confirm that `MW2.EXE` and
-`MW2.PRJ` are verified. The configurator checks the expected directory shown
-above; it does not discover a different mount path edited into the DOSBox
-configuration.
+1. Download the
+   [official DOS v1.1 patch](https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch)
+   and save `mech2v11.zip` beside `install_mw2_v11_patch.bat`.
+2. Run `install_mw2_v11_patch.bat`. In the DOSBox-X window that opens, choose
+   option 2 to apply the patch. When it reports
+   `Version 1.1 patching process complete`, type `EXIT`.
+3. Run `configure.bat`, open **Game Installation**, and confirm that `MW2.EXE`
+   and `MW2.PRJ` are verified.
+
+The configurator checks the expected directory shown above; it does not
+discover a different mount path edited into the DOSBox configuration.
 
 ### 2. Configure the DOS game
 
