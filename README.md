@@ -3,7 +3,7 @@
 An experimental OpenGL renderer mod and collection of fixes for the DOS version
 of **MechWarrior 2: 31st Century Combat**.
 
-**Status:** v0.9.0 beta. Expect some rough edges and please report major,
+**Status:** v0.9.1 beta. Expect some rough edges and please report major,
 reproducible issues.
 
 **Supported platform:** Windows x64 on Intel or AMD 64-bit hardware. Linux,
@@ -119,8 +119,8 @@ retained.
 
 ### Presentation modes and smoother frame pacing
 
-The package includes tear-free fullscreen launch profiles for 60 and 72 FPS;
-either can be used. Instead of adjusting DOSBox's CPU-cycle budget to
+The package includes tear-free fullscreen launch profiles for 30, 60, and 72
+FPS; any can be used. Instead of adjusting DOSBox's CPU-cycle budget to
 approximate a frame rate—a rate that changes with the load of each scene—the
 renderer paces frames toward a consistent target. Timers, interrupts, input,
 and audio continue running between frames. Besides looking smoother, this
@@ -149,9 +149,7 @@ not built in; use a tool such as Joystick Gremlin to map buttons to MechWarrior
 ## Installing
 
 Download the
-[v0.9.0 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.0)
-and its
-[SHA-256 checksum](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/v0.9.0/mw2-enhanced-renderer-mod-v0.9.0-windows-x64.zip.sha256).
+[v0.9.1 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.1).
 
 The release is intended to be self-contained. It includes the mod, its Python
 runtime and dependencies, and the required
@@ -164,7 +162,7 @@ Supported setup:
   are not supported.
 - Your own copy of **MechWarrior 2: 31st Century Combat for DOS**, updated to
   **version 1.1**. Other editions are not supported.
-- Either the included 60 or 72 FPS launch profile.
+- One of the included 30, 60, or 72 FPS launch profiles.
 - The installed DOS game directory and your `.bin`/`.cue` CD image files.
 
 ### 1. Copy the game files
