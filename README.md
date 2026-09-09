@@ -146,6 +146,14 @@ calibrated turret, chassis-turn, and throttle commands. HOTAS button binding is
 not built in; use a tool such as Joystick Gremlin to map buttons to MechWarrior
 2 keyboard controls. Joystick input remains disabled until axes are configured.
 
+## Updating from an earlier installation
+
+To carry settings forward from an earlier installation, copy
+`mw2mods/mod.conf` from the old installation into the new one. If you configured
+HOTAS axes, copy `mw2mods/joystick.conf` as well. These are the files where the
+configurator stores its settings. Do not copy the rest of the old `mw2mods`
+directory over the new release.
+
 ## Installing
 
 Download the
@@ -182,6 +190,7 @@ MW2-EnhancedRenderer/
 ├── bin/
 ├── mw2mods/
 ├── configure.bat
+├── launchmw2_30fps.bat
 ├── launchmw2_60fps.bat
 └── launchmw2_72fps.bat
 ```
@@ -212,8 +221,8 @@ The mod is verified to work only with all effects enabled and the game
 resolution set to 1024x768.
 
 After reviewing any other settings in `configure.bat`, run
-`launchmw2_60fps.bat` or `launchmw2_72fps.bat` to play—choose whichever better
-fits your display refresh rate.
+`launchmw2_30fps.bat`, `launchmw2_60fps.bat`, or `launchmw2_72fps.bat` to
+play—choose whichever better fits your system and display refresh rate.
 
 No game files are included with this project or its releases.
 
@@ -226,23 +235,20 @@ native.
 A few known rough edges remain:
 
 - Higher frame rates such as 90 FPS are supported by editing the batch file,
-  but currently break LRM missiles. Use either the 60 or 72 FPS profile for
-  normal play.
+  but currently break LRM missiles. Use one of the included 30, 60, or 72 FPS
+  profiles for normal play.
 - Full render distance may interfere with or spoil how some missions are
   intended to play.
 - Occasionally, pressing `Esc` during a mission can terminate the mission with
   a `divide overflow` error. Similar errors are known to other MechWarrior 2
   players, but the cause in this setup is not yet understood.
-- The renderer preloads all mission textures. It releases each game-side
-  resource after copying it, allowing the game's cache to purge it, but the
-  timing of that purge has not been confirmed. Some missions may therefore run
-  into resource-cache pressure during loading.
+- The renderer preloads all mission textures. On some systems this may cause
+  resource-cache pressure or long loading times in certain missions. If this
+  happens, run `configure.bat`, set **Advanced → Disable texture preload** to
+  **true**, and use `launchmw2_sbs_compare.bat` to launch the enhanced and
+  original renderers side by side.
 - Terrain correction greatly reduces cracks, but a few residual seams may
   remain.
-- The original game applies fill lighting to mechs and other objects, and
-  makes them brighter as they take damage, in both normal and
-  light-amplification modes. The enhanced renderer does not yet reproduce
-  these effects.
 - Impact red-out can differ slightly from the native ground color.
 
 ## Issues
