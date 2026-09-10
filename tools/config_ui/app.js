@@ -203,6 +203,9 @@ function renderSection() {
   grid.classList.toggle("single-column", section.id !== "input");
   grid.innerHTML = section.groups.map((group) => {
     if (group.input_axis) return renderInputAxisCard(section, group);
+    if (group.joystick_master) return renderJoystickMasterCard(section, group);
+    if (group.controller_selector) return renderJoystickDevicesCard(group);
+    if (group.control_preview) return renderControlPreviewCard(group);
     return renderSettingsCard(section, group);
   }).join("");
   bindControls(section);
@@ -298,7 +301,7 @@ function renderInstallation() {
             Run <code>configure.bat</code> again and confirm that both game files are verified.
           </p>` : `
           <p class="optional-step">
-            <strong>Optional:</strong> If your DOS copy is not already patched, download the
+            <strong aria-label="Warning">⚠️</strong> If your DOS copy is not already patched, download the
             <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>,
             save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>, and run the installer.
             When patching is complete, run <code>configure.bat</code> again and confirm that both game files are verified.
@@ -331,12 +334,61 @@ function renderSettingsCard(section, group) {
     </div>`;
   return `
     <article class="settings-card ${group.featured ? "featured" : ""}">
+      ${group.show_heading === false ? "" : `<header class="card-heading">
+        <div><h2>${escapeHtml(group.title)}</h2><p>${escapeHtml(group.subtitle || "")}</p></div>
+      </header>`}
+      ${settings}
+    </article>`;
+}
+
+function renderJoystickMasterCard(section, group) {
+  const definition = group.settings[0];
+  const enabled = Boolean(app.values[section.id][definition.key]);
+  return `
+    <article class="settings-card joystick-master-card ${enabled ? "enabled" : "disabled"}">
+      <div class="joystick-master-copy">
+        <span class="summary-label">Master input</span>
+        <h2>Joystick input is ${enabled ? "enabled" : "disabled"}</h2>
+        <ul class="joystick-usage-list">
+          <li>
+            <strong>Joystick axes:</strong> Configure turret, chassis, and throttle below.
+            No DOSBox-X or in-game joystick setup is needed.
+          </li>
+          <li>
+            <strong>Joystick buttons:</strong> Map them to the game's keyboard controls with
+            <a href="https://joytokey.net/en/" target="_blank" rel="noopener noreferrer">JoyToKey</a>
+            or
+            <a href="https://whitemagic.github.io/JoystickGremlin/quickstart.html" target="_blank" rel="noopener noreferrer">Joystick Gremlin</a>.
+          </li>
+        </ul>
+      </div>
+      <div class="joystick-master-action">
+        <span class="joystick-master-state">${enabled ? "Enabled" : "Disabled"}</span>
+        <div class="segmented-control master-segmented-control" data-choice-key="${definition.key}" aria-label="Enable joystick input">
+          <button type="button" data-choice-value="true" class="${enabled ? "active" : ""}">Enable</button>
+          <button type="button" data-choice-value="false" class="${enabled ? "" : "active"}">Disable</button>
+        </div>
+      </div>
+    </article>`;
+}
+
+function renderJoystickDevicesCard(group) {
+  return `
+    <article class="settings-card joystick-devices-card">
       <header class="card-heading">
         <div><h2>${escapeHtml(group.title)}</h2><p>${escapeHtml(group.subtitle || "")}</p></div>
       </header>
-      ${group.controller_selector
-        ? `<div class="aiming-overview">${settings}${renderControlPreview()}</div>${renderControllerSelector()}`
-        : settings}
+      ${renderControllerSelector()}
+    </article>`;
+}
+
+function renderControlPreviewCard(group) {
+  return `
+    <article class="settings-card control-preview-card">
+      <header class="card-heading">
+        <div><h2>${escapeHtml(group.title)}</h2></div>
+      </header>
+      ${renderControlPreview()}
     </article>`;
 }
 
@@ -346,12 +398,11 @@ function renderControlPreview() {
     <section class="control-preview" aria-label="Live in-game control preview">
       <header class="control-preview-heading">
         <div>
-          <span class="summary-label">Live control preview</span>
-          <strong>${relative ? "Simulated turret position" : "Turret position"}</strong>
+          <strong>Turret mode: ${relative ? "Relative rate" : "Direct position"}</strong>
+          <span class="control-preview-note">(Setup aid for comparing physical joystick movement with in-game motion.)</span>
         </div>
         <button class="small-button preview-center ${relative ? "" : "hidden"}" type="button" data-center-preview>Center simulation</button>
       </header>
-      <p class="control-preview-note">Setup aid only — use it to verify that each joystick direction matches the game.</p>
       <canvas class="cockpit-preview" data-control-preview aria-label="Turret, chassis turn, and throttle command preview"></canvas>
     </section>`;
 }
@@ -419,6 +470,37 @@ function renderInputAxisCard(section, group) {
   const bindingState = joystickBindingState(group);
   const expanded = app.expandedCalibration.has(group.id);
   const curve = activeResponseCurve(group);
+  const identity = `
+    <div class="axis-identity">
+      <span class="summary-label">Assigned input</span>
+      <strong title="${escapeHtml(deviceName)}">${escapeHtml(deviceName || "Unassigned")}</strong>
+      <span class="axis-binding-detail ${bindingState.kind}">${escapeHtml(bindingState.text)}${deviceName ? ` · Axis ${axisIndex}` : ""}</span>
+    </div>`;
+  const response = `
+    <div class="axis-response-name">
+      <span class="summary-label">Response</span>
+      <strong>${escapeHtml(responseSummary(group))}</strong>
+    </div>`;
+  const graph = curve ? `<div class="axis-graph-block">
+    <canvas class="curve-canvas axis-curve" data-curve-group="${group.id}" data-axis-graph="${group.id}" aria-label="Calibrated input response graph"></canvas>
+    <div class="axis-response-readout">
+      <span><i class="input-swatch"></i>Input <b data-axis-input-value>0.000</b></span>
+      <span><i class="output-swatch"></i>Response <b data-axis-output-value>0.000</b></span>
+    </div>
+  </div>` : "";
+  const summary = group.id === "chassis_turn" ? `
+    <div class="chassis-axis-details">
+      <div class="chassis-axis-meta">${identity}${response}</div>
+      <aside class="axis-tip-box">
+        <strong>Rudder pedal tip</strong>
+        <ul>
+          <li>Even the slightest chassis-turn input prevents your 'Mech from coming fully to rest.</li>
+          <li>Any chassis-turn input also disables autopilot.</li>
+        </ul>
+        <p>For rudder pedals, try a small <strong>center deadzone</strong> to prevent unwanted resting input.</p>
+      </aside>
+    </div>
+    ${graph}` : `${identity}${response}${graph}`;
   return `
     <article class="settings-card input-axis-card">
       <header class="card-heading input-axis-heading">
@@ -428,23 +510,8 @@ function renderInputAxisCard(section, group) {
           <button class="small-button calibrate-button ${expanded ? "active" : ""}" type="button" data-toggle-calibration="${group.id}">${expanded ? "Done" : "Calibrate"}</button>
         </div>
       </header>
-      <div class="axis-summary">
-        <div class="axis-identity">
-          <span class="summary-label">Assigned input</span>
-          <strong title="${escapeHtml(deviceName)}">${escapeHtml(deviceName || "Unassigned")}</strong>
-          <span class="axis-binding-detail ${bindingState.kind}">${escapeHtml(bindingState.text)}${deviceName ? ` · Axis ${axisIndex}` : ""}</span>
-        </div>
-        <div class="axis-response-name">
-          <span class="summary-label">Response</span>
-          <strong>${escapeHtml(responseSummary(group))}</strong>
-        </div>
-        ${curve ? `<div class="axis-graph-block">
-          <canvas class="curve-canvas axis-curve" data-curve-group="${group.id}" data-axis-graph="${group.id}" aria-label="Calibrated input response graph"></canvas>
-          <div class="axis-response-readout">
-            <span><i class="input-swatch"></i>Input <b data-axis-input-value>0.000</b></span>
-            <span><i class="output-swatch"></i>Response <b data-axis-output-value>0.000</b></span>
-          </div>
-        </div>` : ""}
+      <div class="axis-summary ${group.id === "chassis_turn" ? "chassis-axis-summary" : ""}">
+        ${summary}
       </div>
       <div class="calibration-drawer ${expanded ? "" : "hidden"}">
         <div class="calibration-intro">Move the assigned control while adjusting these values. Every change is written to joystick.conf immediately.</div>
@@ -458,7 +525,7 @@ function renderInputAxisCard(section, group) {
 function renderControllerSelector() {
   return `
     <div class="controller-strip">
-      <div><span class="summary-label">SDL joystick service</span><strong id="joystick-state">Scanning for joysticks…</strong></div>
+      <div class="controller-summary"><strong id="joystick-state">Scanning for joysticks…</strong></div>
       <div class="controller-device-list" id="controller-device-list"></div>
     </div>`;
 }
@@ -546,7 +613,7 @@ function bindControls(section) {
         const value = definition.value_type === "bool" ? rawValue === "true" : rawValue;
         app.values[section.id][definition.key] = value;
         scheduleSave(section.id, definition, value, true);
-        if (definition.key === "turret_aim_mode" || definition.key.endsWith("_curve_mode")) renderSection();
+        if (definition.key === "joystick_input_enable" || definition.key === "turret_aim_mode" || definition.key.endsWith("_curve_mode")) renderSection();
         else {
           $$(`[data-choice-value]`, control).forEach((candidate) => candidate.classList.toggle("active", candidate === button));
           refreshCurves();
@@ -799,25 +866,20 @@ function updateControlPreview(outputs) {
   const turn = Number.isFinite(outputs.chassis_turn)
     ? clampValue(outputs.chassis_turn, -1, 1)
     : 0;
-  let aimText;
-  if (mode === "relative") {
-    aimText = `YAW ${directionalValue(yawRate, "LEFT", "RIGHT", 1, "°/s")} · PITCH ${directionalValue(pitchRate, "UP", "DOWN", 1, "°/s")}`;
-  } else {
-    aimText = `YAW ${directionalValue(yaw, "LEFT", "RIGHT")} · PITCH ${directionalValue(pitch, "UP", "DOWN")}`;
-  }
   const turnText = directionalValue(outputs.chassis_turn, "LEFT", "RIGHT");
   const throttleText = Number.isFinite(outputs.throttle)
     ? `${Math.round(throttle * 100)}%`
     : "Unavailable";
 
-  const width = Math.max(320, Math.round(canvas.clientWidth || 360));
-  const height = 210;
+  const width = Math.max(180, Math.round(canvas.clientWidth || 274));
+  const height = width;
   const ctx = resizeCanvas(canvas, width, height);
 
   const left = 14;
-  const right = width - 58;
   const top = 10;
-  const bottom = 137;
+  const aimSize = Math.min(width - 72, height - 82);
+  const right = left + aimSize;
+  const bottom = top + aimSize;
   const centerX = (left + right) / 2;
   const centerY = (top + bottom) / 2;
   ctx.fillStyle = "rgba(3,11,14,.64)";
@@ -838,8 +900,9 @@ function updateControlPreview(outputs) {
   ctx.beginPath(); ctx.moveTo(centerX, top); ctx.lineTo(centerX, bottom); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(left, centerY); ctx.lineTo(right, centerY); ctx.stroke();
 
-  const reticleX = centerX + state.yaw * ((right - left) / 2 - 24);
-  const reticleY = centerY + state.pitch * ((bottom - top) / 2 - 18);
+  const reticleRange = aimSize / 2 - 20;
+  const reticleX = centerX + state.yaw * reticleRange;
+  const reticleY = centerY + state.pitch * reticleRange;
   ctx.strokeStyle = "rgba(230,183,92,.32)";
   ctx.beginPath(); ctx.moveTo(centerX, centerY); ctx.lineTo(reticleX, reticleY); ctx.stroke();
   ctx.setLineDash([]);
@@ -857,7 +920,7 @@ function updateControlPreview(outputs) {
 
   const throttleX = width - 37;
   const throttleTop = 28;
-  const throttleHeight = 109;
+  const throttleHeight = Math.max(72, aimSize - 26);
   ctx.fillStyle = "rgba(143,165,171,.08)";
   ctx.strokeStyle = "rgba(143,165,171,.28)";
   ctx.fillRect(throttleX, throttleTop, 16, throttleHeight);
@@ -870,9 +933,9 @@ function updateControlPreview(outputs) {
   ctx.fillText("THR", throttleX + 8, 18);
   ctx.fillText("100", throttleX - 12, throttleTop + 5);
   ctx.fillText("0", throttleX - 8, throttleTop + throttleHeight);
-  ctx.fillText(throttleText, throttleX + 8, 153);
+  ctx.fillText(throttleText, throttleX + 8, throttleTop + throttleHeight + 16);
 
-  const turnY = 164;
+  const turnY = bottom + 20;
   ctx.strokeStyle = "rgba(143,165,171,.34)";
   ctx.beginPath(); ctx.moveTo(left + 16, turnY); ctx.lineTo(right - 6, turnY); ctx.stroke();
   const turnX = centerX + turn * ((right - left) / 2 - 22);
@@ -884,11 +947,18 @@ function updateControlPreview(outputs) {
   ctx.font = "700 10px Consolas, monospace";
   ctx.textAlign = "left"; ctx.fillText("L", left, turnY + 3);
   ctx.textAlign = "right"; ctx.fillText("R", right + 7, turnY + 3);
-  ctx.textAlign = "center"; ctx.fillText(`CHASSIS ${turnText}`, centerX, 181);
+  ctx.textAlign = "center"; ctx.fillText(`CHASSIS ${turnText}`, centerX, turnY + 17);
 
-  ctx.font = "600 10px Consolas, monospace";
+  ctx.font = "600 9px Consolas, monospace";
   ctx.fillStyle = "#8fa5ab";
-  ctx.textAlign = "left"; ctx.fillText(aimText, left, 202);
+  ctx.textAlign = "left";
+  if (mode === "relative") {
+    ctx.fillText(`YAW ${directionalValue(yawRate, "LEFT", "RIGHT", 1, "°/s")}`, left, height - 18);
+    ctx.fillText(`PITCH ${directionalValue(pitchRate, "UP", "DOWN", 1, "°/s")}`, left, height - 6);
+  } else {
+    ctx.fillText(`YAW ${directionalValue(yaw, "LEFT", "RIGHT")}`, left, height - 18);
+    ctx.fillText(`PITCH ${directionalValue(pitch, "UP", "DOWN")}`, left, height - 6);
+  }
 }
 
 function throttleEndpointPosition(settingKey) {
@@ -1011,7 +1081,7 @@ function refreshJoystickStatus() {
   if (!state || !list) return;
   const devices = app.joystickSnapshot.devices;
   state.textContent = devices.length
-    ? `${devices.length} connected`
+    ? `${devices.length} ${devices.length === 1 ? "device" : "devices"} connected:`
     : "No joystick detected";
   const catalogKey = devices.map(
     (device) => `${device.name}\u0000${device.axis_count}\u0000${device.duplicate}`,

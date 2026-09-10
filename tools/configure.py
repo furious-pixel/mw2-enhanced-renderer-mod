@@ -147,15 +147,35 @@ SCHEMA = [
         "icon": "controls",
         "groups": [
             _group(
+                "joystick_master", "Joystick input",
+                "Master control for all joystick and HOTAS input.",
+                [
+                    _item("joystick_input_enable", "Enable joystick input"),
+                ],
+                featured=True,
+                joystick_master=True,
+            ),
+            _group(
+                "control_preview", "Live control preview",
+                "Verify that the configured axes move in the expected directions.",
+                [],
+                control_preview=True,
+            ),
+            _group(
+                "joystick_devices", "Joystick devices",
+                "Controllers currently visible to the configurator.",
+                [],
+                controller_selector=True,
+            ),
+            _group(
                 "aiming_mode", "Turret aiming",
                 "Choose direct position or relative rate control for turret yaw and pitch.",
                 [
-                    _item("joystick_input_enable", "Enable joystick input"),
-                    _item("turret_aim_mode", "Aiming behavior",
+                    _item("turret_aim_mode", "Turret aiming mode",
                           choice_labels=("Direct position", "Relative rate")),
                 ],
                 featured=True,
-                controller_selector=True,
+                show_heading=False,
             ),
             _group(
                 "turret_yaw", "Turret yaw", "Horizontal torso aiming.",
