@@ -9,4 +9,4 @@ cd /d "%~dp0"
   -set "render mod renderer target fps=30" ^
   -set "render mod renderer host vsync=true" ^
   -set "vsync vsyncmode=off" ^
-  -set "cpu cycles=auto"
+  -set "cpu cycles=max"
