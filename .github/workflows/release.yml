@@ -15,12 +15,12 @@ permissions:
   contents: write
 
 env:
-  MOD_VERSION: "0.9.1"
+  MOD_VERSION: "0.9.2"
   PYTHON_VERSION: "3.14.3"
   UV_VERSION: "0.10.9"
-  DOSBOX_VERSION: "v0.2.0"
-  DOSBOX_ARCHIVE: "dosbox-x-windows-x64-sdl2-v0.2.0.zip"
-  DOSBOX_SHA256: "72abb983985bdaf30f81533bbfcf79db905975cd3f3d4d33f97c518b96a28561"
+  DOSBOX_VERSION: "v0.2.1"
+  DOSBOX_ARCHIVE: "dosbox-x-windows-x64-sdl2-v0.2.1.zip"
+  DOSBOX_SHA256: "c028908531b3c4af928d1f1956d272191148ead19bc07641da30619f57f6d260"
 
 jobs:
   package:
@@ -29,6 +29,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+
+      - name: Require pinned host archive
+        shell: pwsh
+        run: |
+          if ($env:DOSBOX_SHA256 -notmatch '^[0-9a-f]{64}$') {
+            throw "Pin the SHA-256 of the published $env:DOSBOX_ARCHIVE before packaging."
+          }
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -243,6 +250,12 @@ jobs:
             "bin/dosbox-x.exe",
             "bin/COPYING",
             "launchmw2_30fps.bat",
+            "launchmw2_60fps.bat",
+            "launchmw2_60fps_maxcycles.bat",
+            "launchmw2_sbs_compare.bat",
+            "install_mw2_v11_patch.bat",
+            "dosbox-mw2.conf",
+            "RELEASE_NOTES.md",
             ".venv/Scripts/python.exe",
             ".venv/Scripts/pythonw.exe",
             ".venv/python-home/python314.dll",
@@ -261,6 +274,7 @@ jobs:
           }
 
           $forbiddenPatterns = @(
+            "launchmw2_72fps*.bat",
             "*/joystick.conf",
             "*/renderer_debug.log",
             "*/frame_timing.log",

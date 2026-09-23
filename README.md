@@ -3,7 +3,7 @@
 An experimental OpenGL renderer mod and collection of fixes for the DOS version
 of **MechWarrior 2: 31st Century Combat**.
 
-**Status:** v0.9.1 beta. Expect some rough edges and please report major,
+**Status:** v0.9.2 beta. Expect some rough edges and please report major,
 reproducible issues.
 
 **Supported platform:** Windows x64 on Intel or AMD 64-bit hardware. Linux,
@@ -157,7 +157,7 @@ directory over the new release.
 ## Installing
 
 Download the
-[v0.9.1 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.1).
+[v0.9.2 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.2).
 
 The release is intended to be self-contained. It includes the mod, its Python
 runtime and dependencies, and the required
@@ -170,7 +170,7 @@ Supported setup:
   are not supported.
 - Your own copy of **MechWarrior 2: 31st Century Combat for DOS**, updated to
   **version 1.1**. Other editions are not supported.
-- One of the included 30, 60, or 72 FPS launch profiles.
+- One of the included 30 or 60 FPS launch profiles.
 - The installed DOS game directory and your `.bin`/`.cue` CD image files.
 
 ### 1. Copy the game files
@@ -243,7 +243,7 @@ native.
 A few known rough edges remain:
 
 - Higher frame rates such as 90 FPS are supported by editing the batch file,
-  but currently break LRM missiles. Use one of the included 30, 60, or 72 FPS
+  but currently break LRM missiles. Use one of the included 30 or 60 FPS
   profiles for normal play.
 - Full render distance may interfere with or spoil how some missions are
   intended to play.
@@ -268,7 +268,7 @@ report them through
 ## A note on the bundled DOSBox-X
 
 This project uses
-[dosbox-x-mod v0.2.0](https://github.com/furious-pixel/dosbox-x-mod/releases/tag/v0.2.0),
+[dosbox-x-mod v0.2.1](https://github.com/furious-pixel/dosbox-x-mod/releases/tag/v0.2.1),
 an experimental DOSBox-X fork made to support this mod. It can load Python
 mods and supports OpenGL renderers, and is bundled so the release is ready to
 use after you add your own game files.
@@ -288,7 +288,7 @@ uv sync --frozen
 ```
 
 Download the pinned
-[dosbox-x-mod v0.2.0 Windows x64 SDL2 archive](https://github.com/furious-pixel/dosbox-x-mod/releases/download/v0.2.0/dosbox-x-windows-x64-sdl2-v0.2.0.zip)
+[dosbox-x-mod v0.2.1 Windows x64 SDL2 archive](https://github.com/furious-pixel/dosbox-x-mod/releases/download/v0.2.1/dosbox-x-windows-x64-sdl2-v0.2.1.zip)
 and extract its contents into `bin/`. The resulting layout must include
 `bin/dosbox-x.exe` and `bin/glshaders/`. Then add your own game files as shown
 under [Installing](#installing), run `configure.bat`, and use either launch
