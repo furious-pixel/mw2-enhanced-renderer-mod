@@ -1657,6 +1657,15 @@ def renderer_init(modstate, modgl, viewport_width, viewport_height):
     _get_resources(modstate, modgl, viewport_width, viewport_height)
 
 
+@modrender("release")
+def renderer_release(modstate, _modgl):
+    resources = getattr(modstate, "mw2_renderer_resources", None)
+    if resources is not None:
+        resources.release()
+        modstate.mw2_renderer_resources = None
+        modstate.mw2_renderer_generation = None
+
+
 @modrender("compositor")
 def renderer_compositor(
     modstate,
