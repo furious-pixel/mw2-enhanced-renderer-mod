@@ -85,13 +85,17 @@ The detailed HUD coordinate, scaling, animation, and artwork rules live in
 
 ## Launcher defaults
 
-- `launchmw2_60fps.bat` and `launchmw2_72fps.bat` apply fullscreen,
+- `launchmw2_30fps.bat` and `launchmw2_60fps.bat` apply fullscreen,
   desktop-resolution, hidden-menu, mod-only presentation with independent host
-  swap VSync. They retain emulated VGA VSync off and select renderer-owned 60
-  or 72 FPS pacing respectively. Fixed-refresh displays should use an integer
-  multiple of the selected target, such as 120 Hz or 144 Hz.
+  swap VSync. They retain emulated VGA VSync off and select renderer-owned 30
+  or 60 FPS pacing respectively, with fixed 250,000 CPU cycles. Fixed-refresh
+  displays should use an integer multiple of the selected target, such as
+  60 Hz or 120 Hz.
+- `launchmw2_60fps_maxcycles.bat` uses the same settings as the standard 60 FPS
+  launcher except for maximum CPU cycles, including during menus and loading.
 - `launchmw2_sbs_compare.bat` retains the canonical 1024x768-per-pane comparison
-  setup and remains outside renderer-owned frame pacing.
+  setup and remains outside renderer-owned frame pacing. It inherits the shared
+  configuration's fixed 250,000 CPU cycles.
 
 ## Runtime and lifecycle constraints
 

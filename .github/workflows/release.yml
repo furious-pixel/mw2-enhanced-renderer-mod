@@ -138,7 +138,7 @@ jobs:
             "dosbox-mw2.conf",
             "launchmw2_30fps.bat",
             "launchmw2_60fps.bat",
-            "launchmw2_72fps.bat",
+            "launchmw2_60fps_maxcycles.bat",
             "launchmw2_sbs_compare.bat"
           )
           foreach ($file in $rootFiles) {
