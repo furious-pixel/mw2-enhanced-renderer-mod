@@ -136,7 +136,15 @@ function bindResetDialog() {
   });
 }
 
+function choiceIndex(definition, value) {
+  return definition.choices.findIndex((choice) => choice.value === value);
+}
+
 function formatValue(definition, value) {
+  if (definition.choices) {
+    const choice = definition.choices.find((entry) => entry.value === value);
+    return choice ? choice.label : String(value);
+  }
   if (definition.unit === "%") {
     const percent = Number(value) * 100;
     return `${Number.isInteger(percent) ? percent : percent.toFixed(1)}%`;
@@ -150,9 +158,25 @@ function formatValue(definition, value) {
 }
 
 function rangeProgress(definition, value) {
+  if (definition.choices) {
+    const maximum = Math.max(1, definition.choices.length - 1);
+    const index = Math.max(0, choiceIndex(definition, value));
+    return `${(index / maximum) * 100}%`;
+  }
   const minimum = Number(definition.minimum);
   const maximum = Number(definition.maximum);
   return `${((Number(value) - minimum) / (maximum - minimum)) * 100}%`;
+}
+
+function readControlValue(definition, control) {
+  if (definition.choices && control.type === "range") {
+    const index = Math.max(0, Math.min(definition.choices.length - 1, Math.round(Number(control.value))));
+    return definition.choices[index].value;
+  }
+  if (definition.value_type === "bool") return control.value === "true";
+  if (definition.value_type === "int") return Math.round(Number(control.value));
+  if (definition.value_type === "float") return Number(control.value);
+  return control.value;
 }
 
 function renderNavigation() {
@@ -567,6 +591,13 @@ function renderControl(definition, value) {
       ? `<div class="number-with-action">${input}<button class="capture-button" type="button" data-capture="${definition.key}">Use live</button></div>`
       : input;
   }
+  if (definition.choices) {
+    const index = Math.max(0, choiceIndex(definition, value));
+    return `<div class="slider-control">
+      <input class="range-input" type="range" ${common} value="${index}" min="0" max="${definition.choices.length - 1}" step="1" style="--range-progress:${rangeProgress(definition, value)}">
+      <span class="range-value" data-range-value="${definition.key}">${formatValue(definition, value)}</span>
+    </div>`;
+  }
   return `<div class="slider-control">
     <input class="range-input" type="range" ${common} value="${value}" min="${definition.minimum}" max="${definition.maximum}" step="${definition.step}" style="--range-progress:${rangeProgress(definition, value)}">
     <span class="range-value" data-range-value="${definition.key}">${formatValue(definition, value)}</span>
@@ -587,11 +618,7 @@ function bindControls(section) {
     if (!definition) return;
     const eventName = control.type === "range" ? "input" : "change";
     control.addEventListener(eventName, () => {
-      let value;
-      if (definition.value_type === "bool") value = control.value === "true";
-      else if (definition.value_type === "int") value = Math.round(Number(control.value));
-      else if (definition.value_type === "float") value = Number(control.value);
-      else value = control.value;
+      const value = readControlValue(definition, control);
       app.values[section.id][definition.key] = value;
       if (control.type === "range") {
         control.style.setProperty("--range-progress", rangeProgress(definition, value));
@@ -602,7 +629,7 @@ function bindControls(section) {
       scheduleSave(section.id, definition, value, control.type !== "range");
     });
     if (control.type === "range") {
-      control.addEventListener("change", () => flushSave(section.id, definition, Number(control.value)));
+      control.addEventListener("change", () => flushSave(section.id, definition, readControlValue(definition, control)));
     }
   });
   $$(`[data-choice-key]`, $("#groups-grid")).forEach((control) => {
@@ -688,6 +715,9 @@ function syncControlValue(definition, value) {
   const control = $(`[data-key="${definition.key}"]`);
   if (!control) return;
   if (definition.value_type === "bool") control.value = value ? "true" : "false";
+  else if (definition.choices && control.type === "range") {
+    control.value = String(Math.max(0, choiceIndex(definition, value)));
+  }
   else control.value = value;
   if (control.type === "range") {
     control.style.setProperty("--range-progress", rangeProgress(definition, value));

@@ -61,6 +61,13 @@ def _axis_point(start, end, attachment):
     return (float(start) + float(end)) * 0.5
 
 
+DAMAGE_WIREFRAME_FIXED_SCALES = {
+    "1x": 1.0,
+    "2x": 2.0,
+    "3x": 3.0,
+}
+
+
 def _damage_sprite_scale(panel, frame, requested):
     requested = max(1, int(requested + 0.5))
     if not panel.sprites:
@@ -116,6 +123,7 @@ class HudLayoutContext:
         "viewport_scale",
         "font_scale",
         "target_marker_scale",
+        "damage_wireframe_scaling",
         "legacy_scale",
         "canvas_origin",
         "middle_panel_y",
@@ -146,6 +154,7 @@ class HudLayoutContext:
             height,
             settings["target_marker_scaling"],
         )
+        self.damage_wireframe_scaling = settings["damage_wireframe_scaling"]
         self.legacy_scale = min(1.0, vertical_scale)
         self.canvas_origin = (
             (width - REFERENCE_WIDTH * self.position_scale) * 0.5,
@@ -254,11 +263,13 @@ class HudLayoutContext:
         center_x = (left + right) * 0.5
         center_y = (top + bottom) * 0.5
         final_center_x, final_center_y = final_frame.point(center_x, center_y)
-        scale = _damage_sprite_scale(
-            panel,
-            final_frame,
-            self.scale_for("damage_sprite"),
-        )
+        scale = DAMAGE_WIREFRAME_FIXED_SCALES.get(self.damage_wireframe_scaling)
+        if scale is None:
+            scale = _damage_sprite_scale(
+                panel,
+                final_frame,
+                self.scale_for("damage_sprite"),
+            )
         if (
             alignment_transform is not None
             and panel.damage_sprite_center_x is not None

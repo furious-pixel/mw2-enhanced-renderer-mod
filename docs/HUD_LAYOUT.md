@@ -76,6 +76,11 @@ The `[HUD]` growth controls are resolution-independent and clamped to `0..1`:
 | `font_scaling` | runtime glyphs and line metrics | 0.0 | 0.6 |
 | `target_marker_scaling` | center reticle, NAV circle, offscreen carets | 0.0 | 0.0 |
 
+`[HUD] damage_wireframe_scaling` is a separate integer-sprite override with
+choices `auto`, `1x`, `2x`, and `3x`. The parser and shipped profile both use
+`auto`. Fixed `1x`/`2x`/`3x` values are exact original-pixel multiples and are
+not growth blends.
+
 Target brackets use `panel_scaling`, not `target_marker_scaling`.
 `alt_throttle_indicator_position = true` selects the right-center throttle,
 speed, and MASC group; `false` retains the native panel locations.
@@ -305,10 +310,12 @@ For the MFD:
 - HTAL and other ordinary native panel artwork use `panel_scaling` and are
   centered as a complete content group within the final MFD frame;
 - the damage wireframe is an RLE sprite with a dedicated `damage_sprite` size
-  role. At 768p it is drawn 1:1. Above 768p, layout rounds the resolved viewport
-  scale to the nearest positive integer, then reduces that integer only if the
-  visible base RLE would cross an edge of the final MFD frame. The common origin
-  is snapped to an output pixel, and every damage-colored clipped pass uses the
+  role. `[HUD] damage_wireframe_scaling` defaults to `auto`: at 768p it is drawn
+  1:1, and above 768p layout rounds the resolved viewport scale to the nearest
+  positive integer, then reduces that integer only if the visible base RLE would
+  cross an edge of the final MFD frame. `1x`, `2x`, and `3x` skip that fit and
+  use a fixed multiple of the original sprite pixels. The common origin is
+  snapped to an output pixel, and every damage-colored clipped pass uses the
   same transform. The decoded indexed-alpha texture continues to use nearest-
   neighbor sampling;
 - damage-wireframe and HTAL content are steady-state views: they are omitted
