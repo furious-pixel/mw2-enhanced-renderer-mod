@@ -3,7 +3,7 @@
 An experimental C++ OpenGL renderer mod and collection of fixes for the DOS version
 of **MechWarrior 2: 31st Century Combat**.
 
-**Status:** v0.10.0 beta (C++ renderer). Expect some rough edges and please
+**Status:** v0.10.1 beta (C++ renderer). Expect some rough edges and please
 report major, reproducible issues.
 
 **Supported platform:** Windows x64 on Intel or AMD 64-bit hardware. Linux,
@@ -160,7 +160,7 @@ You can then launch the game without running the configurator again.
 ## Installing
 
 Download the Windows x64 package from the
-[v0.10.0 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.10.0).
+[v0.10.1 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.10.1).
 The [v0.9.2 beta](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.2)
 remains available as the earlier Python-renderer fallback.
 

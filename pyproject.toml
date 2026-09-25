@@ -1,6 +1,6 @@
 [project]
 name = "mw2-enhanced-renderer-mod"
-version = "0.10.0"
+version = "0.10.1"
 license = "GPL-2.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
