@@ -19,7 +19,8 @@ ROOT_FILES = (
     'README.md', 'LICENSE', 'COPYRIGHT', 'THIRD_PARTY_NOTICES.md', 'VERSION',
     'configure.bat', 'install_mw2_v11_patch.bat', 'dosbox-mw2.conf',
     'launchmw2_30fps.bat', 'launchmw2_60fps.bat', 'launchmw2_72fps.bat',
-    'launchmw2_60fps_maxcycles.bat', 'launchmw2_sbs_compare.bat',
+    'launchmw2_72fps_windowed.bat', 'launchmw2_60fps_maxcycles.bat',
+    'launchmw2_sbs_compare.bat',
 )
 MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py',
              '_printfps.py', 'joystick.example.conf')

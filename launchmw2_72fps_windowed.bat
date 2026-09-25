@@ -3,7 +3,6 @@ setlocal
 set "MW2_STARTUP_TRACE=0"
 cd /d "%~dp0"
 ".\bin\dosbox-x.exe" -console -python -moddir mw2mods -log-fileio -conf ".\dosbox-mw2.conf" ^
-  -set "sdl showmenu=false" ^
   -set "render mod renderer start view=mod-only" ^
   -set "render mod renderer target fps=72" ^
   -set "render mod renderer host vsync=true" ^
