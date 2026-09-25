@@ -148,14 +148,14 @@ not built in; use a tool such as Joystick Gremlin to map buttons to MechWarrior
 
 ## Updating from an earlier installation
 
-To carry settings forward from an earlier installation, copy
-`mw2mods/mod.conf` from the old installation into the new one. If you configured
-HOTAS axes, copy `mw2mods/joystick.conf` as well. These are the files where the
-configurator stores its settings. Do not copy the rest of the old `mw2mods`
-directory over the new release. Extract into a new directory; do not overlay
-a Python installation or copy its `.venv`. Keep the old installation as
-a fallback. Existing configuration keys are preserved; missing native
-settings use their defaults.
+Extract the release into a fresh directory, then copy these from your previous
+installation:
+
+- The `game/` directory.
+- `mw2mods/mod.conf`.
+- `mw2mods/joystick.conf`, if present.
+
+You can then launch the game without running the configurator again.
 
 ## Installing
 
@@ -177,6 +177,13 @@ Supported setup:
   **version 1.1**. Other editions are not supported.
 - One of the included 30, 60, or 72 FPS launch profiles.
 - The installed DOS game directory and your `.bin`/`.cue` CD image files.
+
+### First-time installation
+
+Extract the release into a fresh directory, run `./configure.bat`, and follow
+the onscreen instructions to install and configure the game.
+
+The following sections provide manual setup details for reference.
 
 ### 1. Copy the game files
 
