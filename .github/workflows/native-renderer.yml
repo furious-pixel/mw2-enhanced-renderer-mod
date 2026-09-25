@@ -1,0 +1,65 @@
+name: Build standalone native renderer
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/mw2renderer/**"
+      - "mw2mods/**"
+      - "tools/run_clean_env.ps1"
+      - ".github/workflows/native-renderer.yml"
+  push:
+    branches: [cpp-renderer, cpp-renderer-integration]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        configuration: [Release, Debug]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure standalone renderer
+        shell: pwsh
+        run: |
+          ./tools/run_clean_env.ps1 -FilePath cmake -CommandLine '--preset windows-msvc -S src/mw2renderer'
+      - name: Build renderer
+        shell: pwsh
+        run: |
+          ./tools/run_clean_env.ps1 -FilePath cmake -CommandLine '--build src/mw2renderer/build --config ${{ matrix.configuration }} --target mw2renderer'
+      - name: Stage runtime, symbols, and corresponding source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --install src/mw2renderer/build --config ${{ matrix.configuration }} --component Runtime --prefix dist/runtime
+          if ($LASTEXITCODE) { throw 'Runtime staging failed' }
+          cmake --install src/mw2renderer/build --config ${{ matrix.configuration }} --component Symbols --prefix dist
+          if ($LASTEXITCODE) { throw 'Symbol staging failed' }
+          New-Item -ItemType Directory dist/source | Out-Null
+          git archive --format=tar --output=dist/project-source.tar HEAD
+          if ($LASTEXITCODE) { throw 'Source archive failed' }
+          tar -xf dist/project-source.tar -C dist/source
+          if ($LASTEXITCODE) { throw 'Source extraction failed' }
+          cmake --install src/mw2renderer/build --config ${{ matrix.configuration }} --component DependencySource --prefix dist/source
+          if ($LASTEXITCODE) { throw 'Dependency source staging failed' }
+          $built = Get-FileHash 'src/mw2renderer/build/bin/${{ matrix.configuration }}/mw2renderer.dll'
+          $staged = Get-FileHash dist/runtime/mw2mods/mw2renderer.dll
+          if ($built.Hash -ne $staged.Hash) { throw 'Staged DLL does not match this build' }
+          $unexpected = Get-ChildItem dist/runtime -Recurse -File | Where-Object Extension -in '.pdb', '.lib', '.log', '.exe'
+          if ($unexpected) { throw "Unexpected runtime files: $unexpected" }
+      - name: Verify offline source-package build
+        shell: pwsh
+        run: |
+          ./tools/run_clean_env.ps1 -FilePath cmake -CommandLine '-S dist/source/src/mw2renderer -B dist/offline-build -G "Visual Studio 17 2022" -A x64 -DFETCHCONTENT_FULLY_DISCONNECTED=ON'
+          if ($LASTEXITCODE) { throw 'Offline configuration failed' }
+          ./tools/run_clean_env.ps1 -FilePath cmake -CommandLine '--build dist/offline-build --config ${{ matrix.configuration }} --target mw2renderer'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-renderer-${{ matrix.configuration }}-${{ github.sha }}
+          path: |
+            dist/runtime
+            dist/symbols
+            dist/source

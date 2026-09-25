@@ -47,6 +47,7 @@ CONFIG_SCHEMA = {
         "radar_stroke_width": (1.5, 0.5, 8.0),
     },
     "renderer": {
+        "load_resources_from_prj": True,
         "antialiasing": ("none", ("none", "ssaa_4x")),
         "ssaa_line_width": (1.0, 0.5, 8.0),
         "max_horizontal_fov_degrees": (105.0, 30.0, 170.0),
@@ -193,6 +194,7 @@ CONFIG_HELP = {
         "entity_lod_detail1_pixels": "Set the projected-radius threshold for entity detail level 1.",
         "entity_lod_detail2_pixels": "Set the projected-radius threshold for entity detail level 2.",
         "entity_lod_hysteresis": "Set the fractional LOD threshold margin that prevents rapid detail switching.",
+        "load_resources_from_prj": "Load native renderer CEL and POLY resources from the supported MW2.PRJ in a background thread and retain them across missions. Restart the game after changing this setting.",
         "enable_diagnostic_logging": "Write renderer diagnostics and performance telemetry, including entity LOD decisions, to renderer_debug.log.",
         "enhanced_enhanced_imaging": "Keep supported effects textured during enhanced imaging.",
         "enhanced_imaging_distance_ratio": "Set enhanced-imaging visibility distance as a multiple of the native far distance.",

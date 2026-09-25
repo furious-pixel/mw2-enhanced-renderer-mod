@@ -110,11 +110,6 @@ void main() {
             (satellite_a.x - satellite_b.x) >> 1
         ));
         base_screen = vec2(satellite_a);
-        // Native display-list ordering uses the sprite entry's
-        // minimum view depth. Give the expanded square the
-        // nearer control endpoint's depth so ground effects do
-        // not disappear behind the terrain solely because A
-        // lies at or slightly below it.
         base_clip = (
             clip_a.z / safe_w(clip_a.w)
             <= clip_b.z / safe_w(clip_b.w)

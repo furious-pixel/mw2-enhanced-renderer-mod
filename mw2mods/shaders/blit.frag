@@ -4,6 +4,7 @@ uniform sampler2D u_scene;
 uniform sampler2D u_overlay;
 uniform sampler2D u_monitor_brightness;
 uniform float u_fade_progress;
+uniform int u_has_overlay;
 
 in vec2 v_uv;
 out vec4 frag_color;
@@ -28,7 +29,9 @@ float applyMonitorBrightness(float component) {
 
 void main() {
     vec4 scene = texture(u_scene, v_uv);
-    vec4 overlay = texture(u_overlay, v_uv);
+    vec4 overlay = u_has_overlay != 0
+        ? texture(u_overlay, v_uv)
+        : vec4(0.0);
     vec3 composed = overlay.rgb + scene.rgb * (1.0 - overlay.a);
     vec3 adjusted = vec3(
         applyMonitorBrightness(composed.r),

@@ -1,0 +1,8 @@
+/build/
+/build-*/
+/artifacts/
+CMakeUserPresets.json
+*.user
+*.suo
+*.VC.db
+*.VC.opendb

@@ -292,6 +292,7 @@ SCHEMA = [
                           step=0.25, unit="px"),
                     _item("entity_lod_hysteresis", "LOD hysteresis",
                           step=0.01, unit="%"),
+                    _item("load_resources_from_prj", "Load resources from game archive"),
                     _item("enable_diagnostic_logging",
                           "Enable diagnostic logging"),
                 ],

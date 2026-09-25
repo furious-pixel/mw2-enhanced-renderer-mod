@@ -3,6 +3,8 @@
 uniform sampler2D u_palette;
 uniform sampler2D u_indexed_texture;
 uniform ivec2 u_texture_size;
+uniform int u_canonical_rotor;
+uniform float u_rotor_lighting;
 
 in vec2 v_uv;
 in vec3 v_world_pos;
@@ -105,8 +107,17 @@ void main() {
     if (sample_value.a < 0.01) {
         discard;
     }
+    float lighting_state = (
+        u_canonical_rotor != 0
+        ? u_rotor_lighting
+        : indexedTexmapPrimitiveLighting()
+    );
     frag_color = vec4(
-        applyIndexedTexmapLighting(sample_value.rgb, v_world_pos),
+        applyIndexedTexmapLightingState(
+            sample_value.rgb,
+            v_world_pos,
+            lighting_state
+        ),
         sample_value.a
     );
 }

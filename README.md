@@ -1,9 +1,9 @@
 # MechWarrior 2 Enhanced Renderer Mod
 
-An experimental OpenGL renderer mod and collection of fixes for the DOS version
+An experimental C++ OpenGL renderer mod and collection of fixes for the DOS version
 of **MechWarrior 2: 31st Century Combat**.
 
-**Status:** v0.9.2 beta. Expect some rough edges and please report major,
+**Status:** v0.10.0 beta candidate (C++ renderer), not yet published. Expect some rough edges and please report major,
 reproducible issues.
 
 **Supported platform:** Windows x64 on Intel or AMD 64-bit hardware. Linux,
@@ -152,12 +152,16 @@ To carry settings forward from an earlier installation, copy
 `mw2mods/mod.conf` from the old installation into the new one. If you configured
 HOTAS axes, copy `mw2mods/joystick.conf` as well. These are the files where the
 configurator stores its settings. Do not copy the rest of the old `mw2mods`
-directory over the new release.
+directory over the new release. Extract into a new directory; do not overlay
+a Python installation or copy its `.venv`. Keep the old installation as
+a fallback. Existing configuration keys are preserved; missing native
+settings use their defaults.
 
 ## Installing
 
-Download the
-[v0.9.2 beta release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.2).
+This branch prepares the C++ beta. Use its candidate package for testing; the
+[existing v0.9.2 beta](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/tag/v0.9.2)
+is the earlier Python renderer, not a compatible native host package.
 
 The release is intended to be self-contained. It includes the mod, its Python
 runtime and dependencies, and the required
@@ -170,7 +174,7 @@ Supported setup:
   are not supported.
 - Your own copy of **MechWarrior 2: 31st Century Combat for DOS**, updated to
   **version 1.1**. Other editions are not supported.
-- One of the included 30 or 60 FPS launch profiles.
+- One of the included 30, 60, or 72 FPS launch profiles.
 - The installed DOS game directory and your `.bin`/`.cue` CD image files.
 
 ### 1. Copy the game files
@@ -231,6 +235,7 @@ After reviewing any other settings in `configure.bat`, run
 a 30 FPS target. Both use a fixed 250,000 CPU cycles. The optional
 `launchmw2_60fps_maxcycles.bat` keeps the 60 FPS target but uses maximum CPU
 cycles throughout the session, including menus and loading.
+`launchmw2_72fps.bat` also uses maximum cycles and targets 72 FPS.
 
 No game files are included with this project or its releases.
 
@@ -267,11 +272,11 @@ report them through
 
 ## A note on the bundled DOSBox-X
 
-This project uses
-[dosbox-x-mod v0.2.1](https://github.com/furious-pixel/dosbox-x-mod/releases/tag/v0.2.1),
-an experimental DOSBox-X fork made to support this mod. It can load Python
-mods and supports OpenGL renderers, and is bundled so the release is ready to
-use after you add your own game files.
+This package requires the native-renderer build of
+[dosbox-x-mod](https://github.com/furious-pixel/dosbox-x-mod).
+The exact host revision and binary hash are recorded in `BUILD_INFO.json`.
+The v0.2.1 Python-release host is not a substitute. Python remains embedded
+for input and gameplay mods; rendering runs in `mw2mods/mw2renderer.dll`.
 
 The fork is not an official DOSBox-X release. General DOSBox-X information and
 the upstream project are available at
@@ -287,44 +292,27 @@ the repository root:
 uv sync --frozen
 ```
 
-Download the pinned
-[dosbox-x-mod v0.2.1 Windows x64 SDL2 archive](https://github.com/furious-pixel/dosbox-x-mod/releases/download/v0.2.1/dosbox-x-windows-x64-sdl2-v0.2.1.zip)
-and extract its contents into `bin/`. The resulting layout must include
-`bin/dosbox-x.exe` and `bin/glshaders/`. Then add your own game files as shown
-under [Installing](#installing), run `configure.bat`, and use either launch
-profile normally. Building DOSBox-X or installing the Python dependencies
-individually is not required.
+Build the DLL using the CMake instructions in
+[src/mw2renderer/README.md](src/mw2renderer/README.md). Stage its Runtime
+component and pair it with a matching native DOSBox-X build, including
+`bin/glshaders/`. The DLL is generated, not committed to Git.
+
+`tools/package_release.py` assembles a fresh portable package from a CMake
+runtime stage, a prepared host distribution, and a clean locked Python
+environment plus its base runtime. Run it with `--help` for input paths.
+Local packaging and the release workflow use this same entry point.
 
 ## How the mod works
 
-The bundled dosbox-x-mod embeds Python and calls the mod at selected points in
-MechWarrior 2's frame, rendering, and HUD flow. During each mission frame, the
-mod reads the game's live memory to capture the camera, palette, lighting,
-objects, geometry, textures, effects, and HUD state. It converts that snapshot
-into GPU buffers, renders the enhanced scene into its own OpenGL targets, and
-then composites the finished image into the DOSBox-X window. The original game
-continues to run the simulation, missions, AI, controls, sound, and music.
+The host calls the C++ renderer through a versioned DLL interface. The renderer
+captures live camera, geometry, palette, texture, and HUD state, renders into
+owned OpenGL targets, and composites the finished image into DOSBox-X.
+The original game continues to own simulation, missions, AI, sound, and music.
 
-During the mission loading screen, the mod invokes the game's own resource
-functions to force-load textures, model detail levels, and other resources
-needed by the enhanced renderer. It copies the required data and releases each
-game-side resource again. This extra work is why the loading screen remains
-visible for longer before a mission begins.
-
-The renderer and HUD otherwise treat game memory as read-only. The mod writes
-to game memory only for configured HOTAS axis input and the jump-jet fuel
-recharge fix.
-
-Caching is what keeps this practical in Python. The expensive resource
-decoding, texture preparation, geometry parsing, and GPU setup are retained and
-reused wherever the game data remains unchanged. Each frame then updates the
-moving objects, animations, palette, camera, lighting, HUD, and any geometry
-that actually changed instead of rebuilding the entire scene from scratch.
-
-In mod-only presentation, and in comparison mode when native suppression is
-enabled, dosbox-x-mod skips the game's native 3D rasterization while leaving
-the game itself running. This avoids spending time rendering a second scene
-that will not be shown.
+Decoded assets and GPU resources are retained across frames. FreeType is
+privately linked into the DLL. Python remains for gameplay/input mods and
+the configurator; NumPy, Numba, ModernGL, and Python FreeType bindings are
+not required or shipped by the native package.
 
 ## Clean-room reverse engineering
 
@@ -339,22 +327,9 @@ to test the game's behavior.
 
 ## A note on the code
 
-Python is not the obvious choice for an efficient real-time renderer. Object
-allocation and garbage collection can cause hitches, so the renderer tries to
-avoid object churn in frequently repeated work. The hottest geometry,
-transformation, lighting, and buffer-filling paths use batched Numba kernels
-over typed arrays instead of ordinary Python loops.
-
-A full reimplementation of the game would be far cleaner and way more
-efficient. Much of this renderer exists to deal with how the original game
-stores live objects in memory, follow its data structures, and parse them
-efficiently each frame without replacing the game itself.
-
-I chose Python for fast prototyping and data analysis, which made it possible
-to investigate the game and iterate quickly. Current agentic AI is remarkably
-good at reverse engineering and writing optimized numeric kernels, although it
-still tends to produce more code than necessary—something that is likely to
-improve as agentic AI matures.
+The renderer was prototyped in Python and is now implemented in C++. It
+still follows the original game data structures rather than replacing the
+game. The Python implementation remains available in earlier releases.
 
 ## Acknowledgements
 
@@ -384,5 +359,5 @@ license files shipped with them.
 The mod does not include or redistribute MechWarrior 2 itself.
 
 Thanks to the DOSBox-X project and to the open-source projects that make the
-renderer possible, including ModernGL, NumPy, Numba, FreeType, PySDL2, and
+renderer possible, including FreeType, Khronos OpenGL headers, stb, PySDL2, and
 PyWebView.

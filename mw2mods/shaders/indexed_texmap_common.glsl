@@ -18,12 +18,19 @@ bool indexedTexmapClipped(vec3 world_pos) {
     );
 }
 
-vec3 applyIndexedTexmapLighting(vec3 base_rgb, vec3 world_pos) {
-    float lighting_state = texelFetch(
+float indexedTexmapPrimitiveLighting() {
+    return texelFetch(
         u_primitive_lighting,
         ivec2(gl_PrimitiveID, 0),
         0
     ).r;
+}
+
+vec3 applyIndexedTexmapLightingState(
+    vec3 base_rgb,
+    vec3 world_pos,
+    float lighting_state
+) {
     float final_shade_level = finalShadeLevel(lighting_state, world_pos);
     float light_t = clamp(final_shade_level / 15.0, 0.0, 1.0);
     if (u_remap_kind == 1 || u_remap_kind == 2) {
@@ -42,4 +49,12 @@ vec3 applyIndexedTexmapLighting(vec3 base_rgb, vec3 world_pos) {
         return mix(u_fog_terminal_color, mid, u);
     }
     return base_rgb;
+}
+
+vec3 applyIndexedTexmapLighting(vec3 base_rgb, vec3 world_pos) {
+    return applyIndexedTexmapLightingState(
+        base_rgb,
+        world_pos,
+        indexedTexmapPrimitiveLighting()
+    );
 }

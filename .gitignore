@@ -10,6 +10,9 @@ game/
 # Release staging
 dist/
 
+# Built and explicitly staged native renderer; preserve local runtime copies.
+/mw2mods/mw2renderer.dll
+
 # Retired root docs and HUD-scale development artifacts
 /HIRES.md
 /HUD_LAYOUT.md
@@ -29,3 +32,6 @@ __pycache__/
 
 # Editor noise
 .vscode/
+
+# Retired loader retained locally; no longer built or distributed.
+/src/mw2renderer/third_party/glad/
