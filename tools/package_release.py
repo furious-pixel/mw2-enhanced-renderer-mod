@@ -87,6 +87,9 @@ def audit(stage: Path):
     for name in REMOVED_MODULES:
         if any(sites.glob(name + '*')):
             raise ValueError(f'Unused rendering dependency still packaged: {name}')
+    game = stage / 'game'
+    if not game.is_dir() or any(game.iterdir()):
+        raise ValueError('The game directory must exist and be empty')
     for path in stage.rglob('*'):
         if not path.is_file():
             continue
@@ -94,8 +97,6 @@ def audit(stage: Path):
         if (path.suffix.lower() in ('.pdb', '.lib', '.log', '.pyc', '.pyo')
                 or '.git' in relative.parts or '__pycache__' in relative.parts):
             raise ValueError(f'Development artifact in package: {relative}')
-        if relative.parts[0] == 'game' and relative.as_posix() != 'game/README.txt':
-            raise ValueError(f'Game data in package: {relative}')
 
 
 def main():
@@ -139,9 +140,6 @@ def main():
         'home = .venv\\python-home\nimplementation = CPython\n'
         'version_info = 3.14.3\ninclude-system-site-packages = false\n', newline='\n')
     (stage / 'game').mkdir()
-    (stage / 'game/README.txt').write_text(
-        'Add your own DOS v1.1 game installation and BIN/CUE image here.\n'
-        'See README.md. No game files are included.\n', newline='\n')
     provenance = {
         'renderer_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'renderer_worktree_changes': subprocess.check_output(['git', 'diff', '--name-only', 'HEAD'], cwd=ROOT, text=True).splitlines(),
@@ -155,6 +153,7 @@ def main():
     audit(stage)
     archive_path = args.output / f'{package_name}.zip'
     with zipfile.ZipFile(archive_path, 'x', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        archive.write(stage / 'game', 'game/')
         for file in sorted(stage.rglob('*')):
             if file.is_file():
                 archive.write(file, file.relative_to(stage).as_posix())
