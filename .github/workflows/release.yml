@@ -9,12 +9,6 @@ on:
       host_sha256:
         description: 'Exact host ZIP SHA-256'
         type: string
-      host_source_url:
-        description: 'Matching host source ZIP URL'
-        type: string
-      host_source_sha256:
-        description: 'Exact host source ZIP SHA-256'
-        type: string
       host_revision:
         description: 'Full native host commit SHA'
         type: string
@@ -44,8 +38,6 @@ jobs:
         env:
           PREVIEW_URL: ${{ inputs.host_url }}
           PREVIEW_SHA256: ${{ inputs.host_sha256 }}
-          PREVIEW_SOURCE_URL: ${{ inputs.host_source_url }}
-          PREVIEW_SOURCE_SHA256: ${{ inputs.host_source_sha256 }}
           PREVIEW_REVISION: ${{ inputs.host_revision }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -54,8 +46,6 @@ jobs:
             $pin.url = $env:PREVIEW_URL
             $pin.sha256 = $env:PREVIEW_SHA256
             $pin.revision = $env:PREVIEW_REVISION
-            $pin.source_url = $env:PREVIEW_SOURCE_URL
-            $pin.source_sha256 = $env:PREVIEW_SOURCE_SHA256
           }
           if ($pin.sha256 -notmatch '^[0-9a-f]{64}$' -or $pin.revision -notmatch '^[0-9a-f]{40}$') {
             throw 'Pin a native host release URL, SHA-256, and full revision; the Python v0.2.1 host is incompatible.'
@@ -67,14 +57,6 @@ jobs:
           if ((Get-FileHash host.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.sha256) {
             throw 'Host archive checksum mismatch'
           }
-          if ($pin.source_sha256 -notmatch '^[0-9a-f]{64}$' -or $pin.source_url -notmatch '^https://github.com/furious-pixel/dosbox-x-mod/releases/download/') {
-            throw 'Pin the matching host source ZIP and checksum'
-          }
-          Invoke-WebRequest -Uri $pin.source_url -OutFile host-source.zip
-          if ((Get-FileHash host-source.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.source_sha256) {
-            throw 'Host source archive checksum mismatch'
-          }
-          Expand-Archive host-source.zip -DestinationPath host-source-check
           Expand-Archive host.zip -DestinationPath host-input
           $hosts = @(Get-ChildItem host-input -Recurse -Filter dosbox-x.exe)
           if ($hosts.Count -ne 1) { throw 'Expected one host executable' }
@@ -84,13 +66,6 @@ jobs:
           }
           if ($manifest.executable_sha256 -ne (Get-FileHash $hosts[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()) {
             throw 'Host executable checksum does not match its manifest'
-          }
-          $sourceManifest = Get-Content host-source-check/HOST_BUILD_INFO.json -Raw | ConvertFrom-Json
-          if ($sourceManifest.revision -ne $manifest.revision -or $sourceManifest.executable_sha256 -ne $manifest.executable_sha256) {
-            throw 'Host source and binary manifests disagree'
-          }
-          if ($manifest.generated_header_sha256 -ne (Get-FileHash host-source-check/include/build_timestamp.h -Algorithm SHA256).Hash.ToLowerInvariant()) {
-            throw 'Host generated build header mismatch'
           }
           "HOST_ROOT=$($hosts[0].Directory.FullName)" >> $env:GITHUB_ENV
           "HOST_REVISION=$($pin.revision)" >> $env:GITHUB_ENV
@@ -130,7 +105,6 @@ jobs:
           if ($LASTEXITCODE) { throw 'Source extraction failed' }
           cmake --install src/mw2renderer/build --config Release --component DependencySource --prefix source-stage
           if ($LASTEXITCODE) { throw 'Dependency source staging failed' }
-          Copy-Item host-source.zip source-stage/dosbox-x-source.zip
           $source = "dist/mw2-enhanced-renderer-mod-v$version-source.zip"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $PWD 'source-stage'), (Join-Path $PWD $source))
