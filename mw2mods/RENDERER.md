@@ -426,3 +426,5 @@ work and does not discover or own an independent OpenGL context.
 Corresponding source also includes the pinned host source archive, with its
 generated build header. Binary and source host manifests must agree with the
 release pin; final public packages are rebuilt from the exported revisions.
+
+- Bracketed-target acquisition is owned by `hud.cpp` (selection/HUD lifecycle and timing) and `targeting.cpp` (output-space square geometry). It reuses the radar line batch and live palette, homes toward the current projected target, defers offscreen starts, restarts interrupted acquisition, and presents one aligned square before brackets. NAV and satellite indicators are excluded. HUD duration zero disables acquisition; turns are rounded to quarter turns. The shipped profile uses 0.25 seconds and 1.0 turn. Only acquisition adds a four-segment upload/draw; ordinary frames retain lightweight lifecycle tracking.

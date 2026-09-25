@@ -462,9 +462,9 @@ static int ensure_gl()
     return 1;
 }
 
-struct Line { double x0, y0, x1, y1; int color; };
+} // namespace
 
-static int draw_lines(const Line *lines, int count, float stroke,
+int mw2er_hud_draw_lines(const Mw2erHudLine *lines, int count, float stroke,
                       int width, int height, const uint8_t *palette)
 {
     if (!count) return 1;
@@ -515,6 +515,8 @@ static int draw_lines(const Line *lines, int count, float stroke,
     return 1;
 }
 
+namespace {
+
 static double effective_fov_half(int width, int height)
 {
     const double native_focal = 512.0 /
@@ -530,7 +532,7 @@ static int draw_fov(const Transform &t, float stroke, int width, int height,
                     const uint8_t *palette)
 {
     if (!g_radar.fov_visible) return 1;
-    Line lines[2];
+    Mw2erHudLine lines[2];
     const double half = effective_fov_half(width, height);
     for (int i = 0; i < 2; ++i) {
         const double angle = g_radar.fov_heading + (i ? half : -half);
@@ -568,7 +570,7 @@ static int draw_fov(const Transform &t, float stroke, int width, int height,
         }
         lines[i] = {x0, y0, x1, y1, g_radar.fov_color};
     }
-    return draw_lines(lines, 2, stroke, width, height, palette);
+    return mw2er_hud_draw_lines(lines, 2, stroke, width, height, palette);
 }
 
 static void quad(Mw2erHudVertex *out, int &count, float left, float top,

@@ -3,6 +3,7 @@
 #include "mem.h"
 #include "mw2er_internal.h"
 #include "presentation.h"
+#include "radar.h"
 
 #include "gl_api.h"
 
@@ -419,6 +420,38 @@ int mw2er_targeting_draw_bracket(double x, double y, double radius, int color,
                   ax, ay, 1.0, color, clip, palette, width, height, 0)) return 0;
     }
     return 1;
+}
+
+int mw2er_targeting_draw_acquisition(
+    double x, double y, double radius, int color, double panel_scale,
+    double progress, double turns, float stroke,
+    const uint8_t *palette, int width, int height)
+{
+    const double eased = progress * progress * (3.0 - 2.0 * progress);
+    const double cx = (1.0 - eased) * width * 0.5 + eased * x;
+    const double cy = (1.0 - eased) * height * 0.5 + eased * y;
+    const double start = 0.65 * height / std::sqrt(2.0);
+    const double end = radius + std::max(1.0, std::ceil(9.0 * panel_scale)) + 2.0;
+    const double extent = (1.0 - eased) * start + eased * end;
+    // Quarter-normalized turns start on a diagonal and end exactly upright.
+    const double angle = -(2.0 * 3.14159265358979323846 * turns +
+                           3.14159265358979323846 * 0.25) * (1.0 - eased);
+    const double cosine = std::cos(angle), sine = std::sin(angle);
+    double corners[4][2];
+    const int signs[4][2] = {{-1,-1}, {1,-1}, {1,1}, {-1,1}};
+    for (int i = 0; i < 4; ++i) {
+        const double lx = signs[i][0] * extent, ly = signs[i][1] * extent;
+        corners[i][0] = cx + lx * cosine - ly * sine;
+        corners[i][1] = cy + lx * sine + ly * cosine;
+    }
+    Mw2erHudLine lines[4];
+    for (int i = 0; i < 4; ++i) {
+        const int next = (i + 1) % 4;
+        lines[i] = {corners[i][0], corners[i][1],
+                    corners[next][0], corners[next][1], color};
+    }
+    glDisable(GL_SCISSOR_TEST);
+    return mw2er_hud_draw_lines(lines, 4, stroke, width, height, palette);
 }
 
 int mw2er_targeting_draw_compass_caret(

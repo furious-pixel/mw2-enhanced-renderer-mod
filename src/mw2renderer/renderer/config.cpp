@@ -2,6 +2,7 @@
 #include "mw2er_internal.h"
 
 #include <algorithm>
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +53,8 @@ static void set_defaults(Mw2erRendererConfig &c)
     c.hud_alt_htal_view = 1;
     c.rear_camera_mirror = 1;
     c.hud_radar_stroke_width = 1.5f;
+    c.hud_targeting_animation_duration = 0.33f;
+    c.hud_targeting_animation_turns = 0.25f;
 }
 
 void mw2er_config_reset_defaults(void)
@@ -161,6 +164,11 @@ static void clamp_loaded(void)
         std::max(-16, std::min(16, g_cfg.hud_meter_peak_offset));
     g_cfg.hud_meter_peak_position =
         clampf(g_cfg.hud_meter_peak_position, 0.1f, 0.9f);
+    g_cfg.hud_targeting_animation_duration = std::isfinite(g_cfg.hud_targeting_animation_duration)
+        ? clampf(g_cfg.hud_targeting_animation_duration, 0.0f, 5.0f) : 0.33f;
+    g_cfg.hud_targeting_animation_turns = std::isfinite(g_cfg.hud_targeting_animation_turns)
+        ? std::floor(clampf(g_cfg.hud_targeting_animation_turns, 0.0f, 10.0f) * 4.0f + 0.5f) / 4.0f
+        : 0.25f;
     g_cfg.hud_radar_stroke_width =
         clampf(g_cfg.hud_radar_stroke_width, 0.5f, 8.0f);
     if (_stricmp(g_cfg.hud_htal_meters, "native") != 0 &&
@@ -272,6 +280,10 @@ static void apply_hud_key(const char *key, const char *value)
         g_cfg.hud_alt_htal_view = parse_bool(value, g_cfg.hud_alt_htal_view);
     } else if (strcmp(key, "rear_camera_mirror") == 0) {
         g_cfg.rear_camera_mirror = parse_bool(value, g_cfg.rear_camera_mirror);
+    } else if (strcmp(key, "targeting_animation_duration") == 0) {
+        g_cfg.hud_targeting_animation_duration = (float)atof(value);
+    } else if (strcmp(key, "targeting_animation_turns") == 0) {
+        g_cfg.hud_targeting_animation_turns = (float)atof(value);
     } else if (strcmp(key, "radar_stroke_width") == 0) {
         g_cfg.hud_radar_stroke_width = (float)atof(value);
     }

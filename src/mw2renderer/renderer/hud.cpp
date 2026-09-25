@@ -169,7 +169,15 @@ struct DamageLayout {
     int part_count;
 };
 
+enum class AcquisitionPhase { Pending, Running, Finishing, Complete };
+struct TargetAcquisition {
+    uint32_t handle;
+    AcquisitionPhase phase;
+    double started_at;
+};
+
 struct TargetingState {
+    uint32_t marker_handle;
     int reticle_reference;
     int reticle_visible;
     int32_t reticle_world[3];
@@ -276,6 +284,8 @@ struct HudState {
     double damage_bottom_y;
     VideoNoiseState video_noise;
     TargetingState targeting;
+    TargetAcquisition acquisition;
+    double targeting_now;
     AuxTarget target_gpu;
     AuxTarget mfd_gpu;
 };
@@ -1160,6 +1170,7 @@ static void capture_targeting(const Mem &mem, uint32_t player,
     } else {
         return;
     }
+    state.marker_handle = handle;
     state.marker_kind = kind;
     const uint32_t camera = mem.u32_rel(ADDR_ACTIVE_CAMERA);
     if (camera) {
@@ -1927,6 +1938,8 @@ static int draw_targeting(int width, int height, const uint8_t *palette,
     const int color = state.marker_kind == 0x0100
         ? 0x0E : colors[std::clamp(state.marker_sub_index, 0, 2)];
     if (!point.onscreen) {
+        if (g_hud.acquisition.phase == AcquisitionPhase::Running)
+            g_hud.acquisition.phase = AcquisitionPhase::Pending;
         double native_x, native_y;
         int direction;
         clip_target_direction(point.view_x, -point.view_y, state.pane,
@@ -1976,6 +1989,26 @@ static int draw_targeting(int width, int height, const uint8_t *palette,
         (focal / std::max(1.0f, camera.focal_length_pixels));
     const double panel_scale = resolved_scale(
         height, mw2er_config().hud_panel_scaling);
+    TargetAcquisition &acquisition = g_hud.acquisition;
+    const double duration = mw2er_config().hud_targeting_animation_duration;
+    if (duration > 0.0 && (acquisition.phase == AcquisitionPhase::Pending ||
+                           acquisition.phase == AcquisitionPhase::Running)) {
+        if (acquisition.phase == AcquisitionPhase::Pending) {
+            acquisition.started_at = g_hud.targeting_now;
+            acquisition.phase = AcquisitionPhase::Running;
+        }
+        const double progress = std::clamp(
+            (g_hud.targeting_now - acquisition.started_at) / duration, 0.0, 1.0);
+        const int drawn = mw2er_targeting_draw_acquisition(
+            point.x, point.y, radius, color, panel_scale, progress,
+            mw2er_config().hud_targeting_animation_turns,
+            mw2er_config().hud_radar_stroke_width * (float)panel_scale,
+            palette, width, height);
+        // Publish brackets only after successfully drawing the aligned square.
+        if (drawn && progress >= 1.0) acquisition.phase = AcquisitionPhase::Finishing;
+        return drawn;
+    }
+    acquisition.phase = AcquisitionPhase::Complete;
     return mw2er_targeting_draw_bracket(
         point.x, point.y, radius, color, panel_scale,
         screen, palette, width, height);
@@ -2276,6 +2309,9 @@ int32_t mw2er_hud_capture_primary(const Mw2erMemoryView &view, double now,
     g_hud.mfd = {};
     g_hud.target_root = 0;
     g_hud.target_entity = 0;
+    const TargetAcquisition previous_acquisition = g_hud.acquisition;
+    g_hud.acquisition = {};
+    g_hud.targeting_now = now;
     g_hud.targeting = {};
     g_hud.targeting.reticle_reference = -1;
     g_hud.target_nav_visible = 0;
@@ -2329,6 +2365,12 @@ int32_t mw2er_hud_capture_primary(const Mw2erMemoryView &view, double now,
     else
         mw2er_compass_altimeter_reset();
     if (hud_mode == 2) capture_targeting(mem, player, mech, body);
+    if (g_hud.targeting.marker_visible && g_hud.targeting.marker_kind != 0x0100) {
+        if (previous_acquisition.handle == g_hud.targeting.marker_handle)
+            g_hud.acquisition = previous_acquisition;
+        else
+            g_hud.acquisition.handle = g_hud.targeting.marker_handle;
+    }
     const int callback_off = hud_mode == 1 ? 0x78 : (hud_mode == 2 ? 0x7C : 0x80);
     const uint32_t target_cb = mem.rt(hud_mode == 1 ? CALLBACK_TARGET_STARTUP
         : (hud_mode == 2 ? CALLBACK_TARGET : CALLBACK_TARGET_SHUTDOWN));

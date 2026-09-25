@@ -405,6 +405,16 @@ SCHEMA = [
                           step=0.1, unit="px"),
                 ],
             ),
+            _group(
+                "target_acquisition", "Target acquisition",
+                "Tune the rotating target-acquisition square.",
+                [
+                    _item("targeting_animation_duration", "Animation duration",
+                          step=0.01, unit="s"),
+                    _item("targeting_animation_turns", "Full rotations",
+                          step=0.25),
+                ],
+            ),
         ],
     },
     {

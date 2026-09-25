@@ -1,4 +1,5 @@
 import configparser
+import math
 import os
 from types import SimpleNamespace
 
@@ -45,6 +46,8 @@ CONFIG_SCHEMA = {
         "rear_camera_mirror": True,
         "alt_throttle_indicator_position": True,
         "radar_stroke_width": (1.5, 0.5, 8.0),
+        "targeting_animation_duration": (0.33, 0.0, 5.0),
+        "targeting_animation_turns": (0.25, 0.0, 10.0),
     },
     "renderer": {
         "load_resources_from_prj": True,
@@ -184,6 +187,8 @@ CONFIG_HELP = {
         "rear_camera_mirror": "Mirror the rear-camera image horizontally like a vehicle rear-view mirror.",
         "alt_throttle_indicator_position": "Place throttle, speed, and MASC in the alternate right-center layout.",
         "radar_stroke_width": "Set antialiased radar-circle and field-of-view line thickness in output pixels.",
+        "targeting_animation_duration": "Set the target-acquisition square animation duration in seconds; zero disables it.",
+        "targeting_animation_turns": "Set clockwise target-acquisition rotation in quarter-turn increments.",
     },
     "renderer": {
         "antialiasing": "Choose native scene rendering or four-sample SSAA.",
@@ -354,6 +359,9 @@ def _config_values(section, schema):
 def normalize_config_values(values):
     """Return a copy with cross-setting configuration rules applied."""
     values = dict(values)
+    if "targeting_animation_turns" in values:
+        turns = max(0.0, min(10.0, float(values["targeting_animation_turns"])))
+        values["targeting_animation_turns"] = math.floor(turns * 4.0 + 0.5) / 4.0
     for deadzone_name, saturation_name in (
         ("turret_yaw_deadzone", "turret_yaw_input_saturation"),
         ("turret_pitch_deadzone", "turret_pitch_input_saturation"),

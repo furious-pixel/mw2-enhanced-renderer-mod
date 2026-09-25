@@ -45,6 +45,8 @@ struct Mw2erRendererConfig {
     int hud_alt_htal_view;
     int rear_camera_mirror;
     float hud_radar_stroke_width;
+    float hud_targeting_animation_duration;
+    float hud_targeting_animation_turns;
     int force_satellite; /* process-launch diagnostic override */
 };
 
