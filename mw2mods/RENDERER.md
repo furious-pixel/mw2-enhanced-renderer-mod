@@ -54,7 +54,8 @@
   resources. Retaining source bytes does not extend the ordinary mesh decoder.
   The worker makes no guest-memory reads, guest acquire/release calls, or GL
   calls. Scene capture waits while the cache is pending. A path, qualification,
-  read, validation, or worker failure logs its reason once for that attempt,
+  read, validation, or worker failure logs its reason once for that attempt
+  inside a multiline asterisk banner explicitly announcing guest-memory fallback,
   joins the worker, discards the entire unpublished cache, and resumes ordinary
   guest-memory discovery and loading. Failure never marks guest preload as
   complete. The renderer does not retry the archive every frame; a new session
@@ -370,6 +371,13 @@ remain host-owned and are rethrown only after the DLL resource call returns.
 The host validates a candidate API before accepting it and invokes shutdown
 callbacks only after initialization has started. Failure, mission end, and
 shutdown clear scene suppression and presentation/pacing ownership.
+
+Statusless cleanup and accessor implementations are explicitly no-throw; an
+unexpected cleanup failure must not be swallowed before DLL unload. Local
+resource-copy exception handling preserves guest acquire/release pairing. CEL
+and font-atlas caches allocate their owning entries before creating GL textures,
+so a container allocation failure cannot orphan a newly created texture. The
+host establishes its presentation GL baseline before drawing fallback output.
 
 The host retains the owning SDL window/context through renderer GL release and
 restores it before teardown. Failed restoration stops the host; device-loss

@@ -22,9 +22,9 @@ static inline int mw2er_viewport_size_ok(int32_t width, int32_t height)
            height <= MW2ER_MAX_VIEWPORT;
 }
 
-void mw2er_set_error(const char *msg);
-void mw2er_clear_error(void);
-const char *mw2er_last_error(void);
+void mw2er_set_error(const char *msg) noexcept;
+void mw2er_clear_error(void) noexcept;
+const char *mw2er_last_error(void) noexcept;
 void mw2er_log(const char *msg);
 const char *mw2er_mod_dir(void);
 const char *mw2er_shader_dir(void);

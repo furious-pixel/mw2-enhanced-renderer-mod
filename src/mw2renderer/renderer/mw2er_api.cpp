@@ -61,17 +61,17 @@ static int path_fits(const char *path, size_t capacity)
     return path == NULL || strlen(path) < capacity;
 }
 
-void mw2er_set_error(const char *msg)
+void mw2er_set_error(const char *msg) noexcept
 {
     copy_path(g_state.last_error, sizeof(g_state.last_error), msg);
 }
 
-void mw2er_clear_error(void)
+void mw2er_clear_error(void) noexcept
 {
     g_state.last_error[0] = '\0';
 }
 
-const char *mw2er_last_error(void)
+const char *mw2er_last_error(void) noexcept
 {
     return g_state.last_error;
 }
@@ -156,7 +156,9 @@ void *mw2er_get_gl_proc_address(const char *name)
         : NULL;
 }
 
-static void api_shutdown(void)
+// Statusless ABI calls must not throw. Cleanup is allocation-free; an unexpected
+// cleanup failure cannot safely be swallowed before the host unloads the DLL.
+static void api_shutdown(void) noexcept
 {
     mw2er_startup_flush("shutdown");
     mw2er_resources_shutdown();
@@ -165,7 +167,7 @@ static void api_shutdown(void)
     memset(&g_state, 0, sizeof(g_state));
 }
 
-static void reset_frame_transaction(void)
+static void reset_frame_transaction(void) noexcept
 {
     g_state.frame_build = 0;
     g_state.frame_sealed = 0;
@@ -215,7 +217,7 @@ static int32_t api_begin_session(const Mw2erSessionInfo *session)
     return MW2ER_OK;
 }
 
-static void api_end_session(uint64_t session_generation)
+static void api_end_session(uint64_t session_generation) noexcept
 {
     if (!g_state.session || (session_generation != 0 &&
         session_generation != g_state.session_generation)) {
@@ -266,7 +268,7 @@ static int32_t api_begin_mission(const Mw2erMissionInfo *mission)
     return MW2ER_OK;
 }
 
-static void api_end_mission(uint64_t mission_generation)
+static void api_end_mission(uint64_t mission_generation) noexcept
 {
     if (!g_state.mission || (mission_generation != 0 &&
         mission_generation != g_state.mission_generation)) {
@@ -299,7 +301,7 @@ static int32_t api_on_gl_context(const Mw2erViewport *vp)
     return mw2er_gl_on_context(vp);
 }
 
-static void api_on_gl_context_lost(void)
+static void api_on_gl_context_lost(void) noexcept
 {
     mw2er_gl_shutdown();
 }
@@ -333,7 +335,7 @@ static int32_t api_mission_begin(const Mw2erMemoryView *mem)
     return api_begin_mission(&mission);
 }
 
-static void api_mission_end(void)
+static void api_mission_end(void) noexcept
 {
     api_end_mission(g_state.mission_generation);
 }
@@ -625,12 +627,12 @@ static int32_t api_published_scene(uint32_t *fbo, int32_t *width, int32_t *heigh
     return mw2er_gl_published_scene(fbo, width, height);
 }
 
-static void api_last_cpu_timing(double *extract_ms, double *draw_submit_ms)
+static void api_last_cpu_timing(double *extract_ms, double *draw_submit_ms) noexcept
 {
     mw2er_scene_last_cpu_timing(extract_ms, draw_submit_ms);
 }
 
-static uint32_t api_resources_pending(uint64_t resource_generation)
+static uint32_t api_resources_pending(uint64_t resource_generation) noexcept
 {
     return mw2er_resources_pending(resource_generation);
 }
@@ -664,7 +666,7 @@ static const Mw2erRendererDescriptor g_descriptor = {
     kArchiveSourceExecutable,
 };
 
-static const Mw2erRendererDescriptor *api_descriptor(void)
+static const Mw2erRendererDescriptor *api_descriptor(void) noexcept
 {
     return &g_descriptor;
 }

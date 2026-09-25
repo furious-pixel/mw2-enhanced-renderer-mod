@@ -136,8 +136,10 @@ static void destroy_gl()
 
 static AtlasPage *new_atlas_page()
 {
-    AtlasPage page = {};
     static const std::vector<uint8_t> empty(ATLAS_SIZE * ATLAS_SIZE, 0);
+    // Allocate the owning slot before creating a GL name: vector growth can throw.
+    g_font.pages.push_back({});
+    AtlasPage &page = g_font.pages.back();
     glGenTextures(1, &page.texture);
     glBindTexture(GL_TEXTURE_2D, page.texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -152,8 +154,7 @@ static AtlasPage *new_atlas_page()
     page.next_x = ATLAS_PADDING;
     page.next_y = ATLAS_PADDING;
     page.row_height = 0;
-    g_font.pages.push_back(page);
-    return &g_font.pages.back();
+    return &page;
 }
 
 static int place_glyph(int width, int height, const uint8_t *pixels, int pitch,

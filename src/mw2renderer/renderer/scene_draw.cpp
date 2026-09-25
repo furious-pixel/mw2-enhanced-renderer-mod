@@ -1536,7 +1536,9 @@ static GLuint cel_gpu_tex(const Mw2erResolvedTexture &tex)
         return 0;
     }
     const Mw2erStartupScope trace(MW2ER_STARTUP_GPU_CEL);
-    GLuint id = 0;
+    // Allocate the owning slot before creating a GL name: vector growth can throw.
+    g_gpu.cel.push_back({rid, w, h, wrap, role, 0});
+    GLuint &id = g_gpu.cel.back().tex;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -1559,8 +1561,6 @@ static GLuint cel_gpu_tex(const Mw2erResolvedTexture &tex)
         GL_RED,
         GL_UNSIGNED_BYTE,
         tex.pixels);
-    CelGpu cached = {rid, w, h, wrap, role, id};
-    g_gpu.cel.push_back(cached);
     return id;
 }
 

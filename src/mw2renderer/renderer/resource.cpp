@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <stdio.h>
@@ -147,6 +148,15 @@ static bool prj_ready()
         g_prj->result.status == Mw2erPrjStatus::Found;
 }
 
+static void log_prj_failure(const char *detail)
+{
+    mw2er_log("************************************************************");
+    mw2er_log("*** PRJ RESOURCE LOADING FAILED ***");
+    mw2er_log(detail);
+    mw2er_log("*** FALLING BACK TO GAME-MEMORY RESOURCE LOADING ***");
+    mw2er_log("************************************************************");
+}
+
 static int32_t prj_progress()
 {
     if (!g_prj) return MW2ER_OK;
@@ -155,11 +165,10 @@ static int32_t prj_progress()
     if (g_prj->result.status != Mw2erPrjStatus::Found) {
         const auto &r = g_prj->result;
         snprintf(message, sizeof(message),
-            "mw2renderer: PRJ %s at %s type=%u id=%u: %s (OS error %u); "
-            "using guest-memory resource loading",
+            "mw2renderer: PRJ %s at %s type=%u id=%u: %s (OS error %u)",
             mw2er_prj_status_name(r.status), r.stage, r.type, r.resource_id,
             r.detail, r.system_error);
-        mw2er_log(message);
+        log_prj_failure(message);
         // The worker has completed and no partial cache was published. Join
         // before releasing it; subsequent requests use the ordinary guest path.
         g_prj.reset();
@@ -384,9 +393,12 @@ void mw2er_resources_open(const Mw2erSessionInfo &session)
         snprintf(message, sizeof(message),
             "mw2renderer: PRJ background resource loading started: %s", filename.c_str());
         mw2er_log(message);
+    } catch (const std::exception &error) {
+        g_prj.reset();
+        log_prj_failure(error.what());
     } catch (...) {
         g_prj.reset();
-        mw2er_log("mw2renderer: PRJ setup failed; using guest-memory resource loading");
+        log_prj_failure("mw2renderer: unexpected C++ exception during PRJ setup");
     }
 }
 
@@ -604,6 +616,8 @@ int32_t mw2er_resources_service(
             try {
                 retained = copy_resource(item, mem, address);
             } catch (...) {
+                // Contain copy failures here so the acquired guest resource is
+                // released below, including for unexpected exception types.
                 retained = 0;
                 mw2er_set_error("service_resources: copy failed");
             }
