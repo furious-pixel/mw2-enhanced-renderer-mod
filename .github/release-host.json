@@ -1,7 +1,7 @@
 {
-  "revision": "",
-  "url": "",
-  "sha256": "",
-  "source_url": "",
-  "source_sha256": ""
+  "revision": "c6b4a24aea8575784fb631f3ee039391b31b7152",
+  "url": "https://github.com/furious-pixel/dosbox-x-mod/releases/download/v0.3.0/dosbox-x-windows-x64-sdl2-v0.3.0.zip",
+  "sha256": "23ecd4b54e6a515efaebc0804a6adf035e93a85382639a10f1a3395495741c89",
+  "source_url": "https://github.com/furious-pixel/dosbox-x-mod/releases/download/v0.3.0/dosbox-x-windows-x64-sdl2-v0.3.0-source.zip",
+  "source_sha256": "1dd8f18c633f81f062545ac3f3211854810cd670aae9c773519c0586306d696c"
 }
