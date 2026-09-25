@@ -91,8 +91,6 @@ The detailed HUD coordinate, scaling, animation, and artwork rules live in
   or 60 FPS pacing respectively, with fixed 250,000 CPU cycles. Fixed-refresh
   displays should use an integer multiple of the selected target, such as
   60 Hz or 120 Hz.
-- `launchmw2_60fps_maxcycles.bat` uses the same settings as the standard 60 FPS
-  launcher except for maximum CPU cycles, including during menus and loading.
 - `launchmw2_sbs_compare.bat` retains the canonical 1024x768-per-pane comparison
   setup and remains outside renderer-owned frame pacing. It inherits the shared
   configuration's fixed 250,000 CPU cycles.

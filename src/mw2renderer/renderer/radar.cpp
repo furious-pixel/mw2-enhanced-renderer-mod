@@ -465,7 +465,8 @@ static int ensure_gl()
 } // namespace
 
 int mw2er_hud_draw_lines(const Mw2erHudLine *lines, int count, float stroke,
-                      int width, int height, const uint8_t *palette)
+                      int width, int height, const uint8_t *palette,
+                      bool accumulate_alpha)
 {
     if (!count) return 1;
     if (!ensure_gl()) return 0;
@@ -502,7 +503,8 @@ int mw2er_hud_draw_lines(const Mw2erHudLine *lines, int count, float stroke,
     g_gl.line_program.set2("u_viewport_size", (float)width, (float)height);
     g_gl.line_program.set("u_stroke_width", stroke);
     glEnable(GL_BLEND);
-    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                        accumulate_alpha ? GL_ONE_MINUS_SRC_ALPHA : GL_ZERO);
     glBindVertexArray(g_gl.line_vao);
     glBindBuffer(GL_ARRAY_BUFFER, g_gl.line_vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0,

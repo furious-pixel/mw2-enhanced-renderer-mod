@@ -2002,6 +2002,7 @@ static int draw_targeting(int width, int height, const uint8_t *palette,
         const int drawn = mw2er_targeting_draw_acquisition(
             point.x, point.y, radius, color, panel_scale, progress,
             mw2er_config().hud_targeting_animation_turns,
+            mw2er_config().hud_targeting_animation_trail_ms / (1000.0 * duration),
             mw2er_config().hud_radar_stroke_width * (float)panel_scale,
             palette, width, height);
         // Publish brackets only after successfully drawing the aligned square.

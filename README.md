@@ -205,7 +205,6 @@ MW2-EnhancedRenderer/
 ├── install_mw2_v11_patch.bat
 ├── launchmw2_30fps.bat
 ├── launchmw2_60fps.bat
-└── launchmw2_60fps_maxcycles.bat
 ```
 
 If your DOS copy is not already updated:
@@ -240,9 +239,7 @@ resolution set to 1024x768.
 
 After reviewing any other settings in `configure.bat`, run
 `launchmw2_60fps.bat` to play at up to 60 FPS, or `launchmw2_30fps.bat` for
-a 30 FPS target. Both use a fixed 250,000 CPU cycles. The optional
-`launchmw2_60fps_maxcycles.bat` keeps the 60 FPS target but uses maximum CPU
-cycles throughout the session, including menus and loading.
+a 30 FPS target. Both use a fixed 250,000 CPU cycles.
 `launchmw2_72fps.bat` also uses maximum cycles and targets 72 FPS.
 
 No game files are included with this project or its releases.

@@ -53,6 +53,7 @@ static void set_defaults(Mw2erRendererConfig &c)
     c.hud_alt_htal_view = 1;
     c.rear_camera_mirror = 1;
     c.hud_radar_stroke_width = 1.5f;
+    c.hud_targeting_animation_trail_ms = 15.0f;
     c.hud_targeting_animation_duration = 0.33f;
     c.hud_targeting_animation_turns = 0.25f;
 }
@@ -164,6 +165,8 @@ static void clamp_loaded(void)
         std::max(-16, std::min(16, g_cfg.hud_meter_peak_offset));
     g_cfg.hud_meter_peak_position =
         clampf(g_cfg.hud_meter_peak_position, 0.1f, 0.9f);
+    g_cfg.hud_targeting_animation_trail_ms = std::isfinite(g_cfg.hud_targeting_animation_trail_ms)
+        ? clampf(g_cfg.hud_targeting_animation_trail_ms, 0.0f, 250.0f) : 15.0f;
     g_cfg.hud_targeting_animation_duration = std::isfinite(g_cfg.hud_targeting_animation_duration)
         ? clampf(g_cfg.hud_targeting_animation_duration, 0.0f, 5.0f) : 0.33f;
     g_cfg.hud_targeting_animation_turns = std::isfinite(g_cfg.hud_targeting_animation_turns)
@@ -280,6 +283,8 @@ static void apply_hud_key(const char *key, const char *value)
         g_cfg.hud_alt_htal_view = parse_bool(value, g_cfg.hud_alt_htal_view);
     } else if (strcmp(key, "rear_camera_mirror") == 0) {
         g_cfg.rear_camera_mirror = parse_bool(value, g_cfg.rear_camera_mirror);
+    } else if (strcmp(key, "targeting_animation_trail_ms") == 0) {
+        g_cfg.hud_targeting_animation_trail_ms = (float)atof(value);
     } else if (strcmp(key, "targeting_animation_duration") == 0) {
         g_cfg.hud_targeting_animation_duration = (float)atof(value);
     } else if (strcmp(key, "targeting_animation_turns") == 0) {

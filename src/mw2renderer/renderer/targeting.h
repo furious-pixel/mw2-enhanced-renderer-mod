@@ -27,7 +27,7 @@ int mw2er_targeting_draw_bracket(double x, double y, double radius, int color,
                                  const uint8_t *palette, int width, int height);
 int mw2er_targeting_draw_acquisition(
     double x, double y, double radius, int color, double panel_scale,
-    double progress, double turns, float stroke,
+    double progress, double turns, double trail_span, float stroke,
     const uint8_t *palette, int width, int height);
 int mw2er_targeting_draw_compass_caret(
     int direction, double x, double y, int edge_attachment,

@@ -1,6 +1,7 @@
 #include "targeting.h"
 
 #include "mem.h"
+#include "hud.h"
 #include "mw2er_internal.h"
 #include "presentation.h"
 #include "radar.h"
@@ -422,36 +423,137 @@ int mw2er_targeting_draw_bracket(double x, double y, double radius, int color,
     return 1;
 }
 
-int mw2er_targeting_draw_acquisition(
-    double x, double y, double radius, int color, double panel_scale,
-    double progress, double turns, float stroke,
-    const uint8_t *palette, int width, int height)
+namespace {
+
+struct AcquisitionPoint { double x, y; };
+
+static void acquisition_corners(double x, double y, double end_extent,
+                                 double progress, double turns,
+                                 int width, int height, AcquisitionPoint out[4])
 {
     const double eased = progress * progress * (3.0 - 2.0 * progress);
     const double cx = (1.0 - eased) * width * 0.5 + eased * x;
     const double cy = (1.0 - eased) * height * 0.5 + eased * y;
     const double start = 0.65 * height / std::sqrt(2.0);
-    const double end = radius + std::max(1.0, std::ceil(9.0 * panel_scale)) + 2.0;
-    const double extent = (1.0 - eased) * start + eased * end;
+    const double extent = (1.0 - eased) * start + eased * end_extent;
     // Quarter-normalized turns start on a diagonal and end exactly upright.
     const double angle = -(2.0 * 3.14159265358979323846 * turns +
                            3.14159265358979323846 * 0.25) * (1.0 - eased);
     const double cosine = std::cos(angle), sine = std::sin(angle);
-    double corners[4][2];
     const int signs[4][2] = {{-1,-1}, {1,-1}, {1,1}, {-1,1}};
     for (int i = 0; i < 4; ++i) {
         const double lx = signs[i][0] * extent, ly = signs[i][1] * extent;
-        corners[i][0] = cx + lx * cosine - ly * sine;
-        corners[i][1] = cy + lx * sine + ly * cosine;
+        out[i] = {cx + lx * cosine - ly * sine,
+                  cy + lx * sine + ly * cosine};
     }
+}
+
+static int draw_acquisition_trail(double x, double y, double end_extent,
+                                   double progress, double turns, double span,
+                                   int color, const uint8_t *palette,
+                                   int width, int height)
+{
+    // Analytically sweep the same live-target trajectory, independent of FPS.
+    // Never sample before acquisition began: the trail grows with elapsed time.
+    const double oldest = std::max(0.0, progress - span);
+    const double finish = std::clamp((1.0 - progress) / 0.12, 0.0, 1.0);
+    if (progress <= oldest || finish == 0.0) return 1;
+    const auto ease = [](double p) { return p * p * (3.0 - 2.0 * p); };
+    // At most 1/128 turn per slice, with extra samples on short arcs for fading.
+    const int slices = std::max(8, (int)std::ceil(
+        (ease(progress) - ease(oldest)) * (turns + 0.125) * 128.0));
+    Mw2erHudVertex vertices[504];
+    int count = 0;
+    AcquisitionPoint previous[4];
+    acquisition_corners(x, y, end_extent, oldest, turns, width, height, previous);
+    float previous_alpha = 0.0f;
+    const float red = palette[color * 3] / 255.0f;
+    const float green = palette[color * 3 + 1] / 255.0f;
+    const float blue = palette[color * 3 + 2] / 255.0f;
+    glEnable(GL_BLEND);
+    // Premultiplied source-over on both RGB and alpha: crossings build opacity
+    // as 1 - product(1 - alpha), bounded by one, including later composition.
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA,
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    for (int slice = 1; slice <= slices; ++slice) {
+        const double t = (double)slice / slices;
+        const double p = oldest + (progress - oldest) * t;
+        const float alpha = (float)(0.28 * t * t * finish);
+        AcquisitionPoint current[4];
+        acquisition_corners(x, y, end_extent, p, turns, width, height, current);
+        for (int edge = 0; edge < 4; ++edge) {
+            const int next = (edge + 1) % 4;
+            AcquisitionPoint points[6] = {
+                previous[edge], previous[next], current[edge],
+                current[edge], previous[next], current[next]};
+            float alphas[6] = {
+                previous_alpha, previous_alpha, alpha,
+                alpha, previous_alpha, alpha};
+            // A rotating edge can cross its previous position. Split at the
+            // intersection so tessellation cannot double-blend a bow-tie quad.
+            const double ax = previous[next].x - previous[edge].x;
+            const double ay = previous[next].y - previous[edge].y;
+            const double bx = current[next].x - current[edge].x;
+            const double by = current[next].y - current[edge].y;
+            const double dx = current[edge].x - previous[edge].x;
+            const double dy = current[edge].y - previous[edge].y;
+            const double determinant = ax * by - ay * bx;
+            if (std::abs(determinant) > 1.0e-9) {
+                const double u = (dx * by - dy * bx) / determinant;
+                const double v = (dx * ay - dy * ax) / determinant;
+                if (u > 0.0 && u < 1.0 && v > 0.0 && v < 1.0) {
+                    const AcquisitionPoint crossing = {
+                        previous[edge].x + u * ax, previous[edge].y + u * ay};
+                    points[0] = previous[edge]; points[1] = current[edge];
+                    points[2] = crossing; points[3] = previous[next];
+                    points[4] = crossing; points[5] = current[next];
+                    const float midpoint_alpha = (previous_alpha + alpha) * 0.5f;
+                    alphas[0] = previous_alpha; alphas[1] = alpha;
+                    alphas[2] = midpoint_alpha; alphas[3] = previous_alpha;
+                    alphas[4] = midpoint_alpha; alphas[5] = alpha;
+                }
+            }
+            for (int i = 0; i < 6; ++i)
+                vertices[count++] = {(float)points[i].x, (float)points[i].y,
+                                      red, green, blue, alphas[i]};
+            if (count == 504) {
+                if (!mw2er_hud_submit_rects(vertices, count, width, height)) {
+                    glDisable(GL_BLEND);
+                    return 0;
+                }
+                count = 0;
+            }
+        }
+        std::copy(current, current + 4, previous);
+        previous_alpha = alpha;
+    }
+    const int drawn = !count || mw2er_hud_submit_rects(vertices, count, width, height);
+    glDisable(GL_BLEND);
+    return drawn;
+}
+
+} // namespace
+
+int mw2er_targeting_draw_acquisition(
+    double x, double y, double radius, int color, double panel_scale,
+    double progress, double turns, double trail_span, float stroke,
+    const uint8_t *palette, int width, int height)
+{
+    const double end_extent = radius + std::max(1.0, std::ceil(9.0 * panel_scale)) + 2.0;
+    glDisable(GL_SCISSOR_TEST);
+    if (trail_span > 0.0 && !draw_acquisition_trail(
+            x, y, end_extent, progress, turns, trail_span,
+            color, palette, width, height)) return 0;
+    AcquisitionPoint corners[4];
+    acquisition_corners(x, y, end_extent, progress, turns, width, height, corners);
     Mw2erHudLine lines[4];
     for (int i = 0; i < 4; ++i) {
         const int next = (i + 1) % 4;
-        lines[i] = {corners[i][0], corners[i][1],
-                    corners[next][0], corners[next][1], color};
+        lines[i] = {corners[i].x, corners[i].y,
+                    corners[next].x, corners[next].y, color};
     }
-    glDisable(GL_SCISSOR_TEST);
-    return mw2er_hud_draw_lines(lines, 4, stroke, width, height, palette);
+    return mw2er_hud_draw_lines(lines, 4, stroke, width, height, palette,
+                               trail_span > 0.0);
 }
 
 int mw2er_targeting_draw_compass_caret(

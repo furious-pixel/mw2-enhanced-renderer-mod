@@ -409,6 +409,8 @@ SCHEMA = [
                 "target_acquisition", "Target acquisition",
                 "Tune the rotating target-acquisition square.",
                 [
+                    _item("targeting_animation_trail_ms", "Motion trail length",
+                          step=1.0, unit="ms"),
                     _item("targeting_animation_duration", "Animation duration",
                           step=0.01, unit="s"),
                     _item("targeting_animation_turns", "Full rotations",
