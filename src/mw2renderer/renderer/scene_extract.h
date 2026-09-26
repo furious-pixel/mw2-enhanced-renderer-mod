@@ -175,7 +175,7 @@ struct Mw2erGeomPartition {
 };
 
 struct Mw2erSceneExtract {
-    uint8_t palette_rgb[768];
+    float palette_rgb[768]; // normalized, pre-monitor-brightness RGB
     uint8_t sky_palette_index;
     uint8_t ground_palette_index;
     int sky_visible;
@@ -200,11 +200,12 @@ void mw2er_partition_reset(Mw2erGeomPartition &p);
 void mw2er_extract_reset(Mw2erSceneExtract &ex);
 void mw2er_extract_free(Mw2erSceneExtract &ex);
 int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
-                         int emit_geometry, Mw2erRenderView render_view);
+                         int emit_geometry, Mw2erRenderView render_view,
+                         const float *shared_palette = nullptr);
 int mw2er_extract_target(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
                          uint32_t root, uint32_t entity, int display_mode,
                          const Mw2erCamera &camera);
-void mw2er_extract_mission_reset(void);
+void mw2er_extract_mission_reset(bool loading = false);
 Mw2erRenderView mw2er_primary_render_view(const Mw2erMemoryView &view);
 Mw2erViewPolicy mw2er_view_policy(Mw2erRenderView view, int camera_mode);
 

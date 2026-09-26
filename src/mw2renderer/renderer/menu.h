@@ -10,6 +10,6 @@ void mw2er_menu_gl_reset(void);
 void mw2er_menu_capture_primary(const Mw2erMemoryView &view);
 void mw2er_menu_capture_late(const Mw2erMemoryView &view);
 int32_t mw2er_menu_render(int32_t width, int32_t height,
-                          const uint8_t *palette);
+                          const float *palette);
 
 #endif

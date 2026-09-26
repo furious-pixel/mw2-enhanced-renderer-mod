@@ -51,7 +51,7 @@ struct Mw2erGlState {
     uint64_t loading_generation;
     float uploaded_brightness[64];
     int brightness_valid;
-    uint8_t uploaded_palette[256 * 3];
+    float uploaded_palette[256 * 3];
     int palette_valid;
 };
 
@@ -170,7 +170,7 @@ static int32_t init_compositor(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glGenTextures(1, &g_gl.palette_texture);
     glBindTexture(GL_TEXTURE_2D, g_gl.palette_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 256, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, 256, 1, 0, GL_RGB, GL_FLOAT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -571,7 +571,7 @@ static GLuint upload_sprite(const Mw2erSprite& sprite)
     return texture;
 }
 
-static void bind_indexed_palette(const uint8_t *palette)
+static void bind_indexed_palette(const float *palette)
 {
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, g_gl.palette_texture);
@@ -580,7 +580,7 @@ static void bind_indexed_palette(const uint8_t *palette)
                     sizeof(g_gl.uploaded_palette)) == 0) return;
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGB,
-                    GL_UNSIGNED_BYTE, palette);
+                    GL_FLOAT, palette);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     std::memcpy(g_gl.uploaded_palette, palette, sizeof(g_gl.uploaded_palette));
     g_gl.palette_valid = 1;
@@ -597,7 +597,7 @@ uint32_t mw2er_gl_upload_indexed_sprite(const Mw2erSprite &sprite)
 int32_t mw2er_gl_draw_indexed_sprites(
     const Mw2erSprite &sprite, uint32_t texture,
     const Mw2erIndexedSpriteDraw *draws, int32_t draw_count,
-    const uint8_t *palette,
+    const float *palette,
     int32_t viewport_width, int32_t viewport_height)
 {
     if (!g_gl.ready || !texture || !draws || draw_count < 0 || !palette ||

@@ -25,7 +25,7 @@ struct Mw2erResolvedTexture {
 
 void mw2er_texture_free_cache(void);
 // Share one palette/remap revision across all descriptors captured this frame.
-void mw2er_texture_begin_frame(const Mem &mem, const uint8_t *palette_rgb);
+void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb);
 int mw2er_texture_resolve(
     const Mem &mem,
     int desc_idx,

@@ -140,7 +140,7 @@ static bool decode_runtime_sprite(
     return true;
 }
 
-static bool capture_palette(const Mem& mem, uint32_t table, uint8_t *palette)
+static bool capture_palette(const Mem& mem, uint32_t table, float *palette)
 {
     const uint8_t *head = mem.view(table, 16);
     if (head == nullptr || std::memcmp(head, "1.10", 4) != 0)
@@ -155,11 +155,11 @@ static bool capture_palette(const Mem& mem, uint32_t table, uint8_t *palette)
     const uint8_t *records = mem.view(address + 4, count * 4);
     if (records == nullptr)
         return false;
-    std::memset(palette, 0, 256 * 3);
+    std::fill_n(palette, 256 * 3, 0.0f);
     for (uint32_t i = 0; i < count; ++i) {
         const uint32_t dst = (uint32_t)records[i * 4] * 3;
         for (uint32_t c = 0; c < 3; ++c)
-            palette[dst + c] = (uint8_t)((records[i * 4 + 1 + c] & 63) * 255 / 63);
+            palette[dst + c] = (records[i * 4 + 1 + c] & 63) / 63.0f;
     }
     return true;
 }
@@ -168,7 +168,7 @@ static bool capture_background(const Mem& mem)
 {
     const uint32_t table = mem.u32_rel(kLoadingBackground);
     Mw2erSprite background;
-    uint8_t palette[256 * 3];
+    float palette[256 * 3];
     if (!decode_runtime_sprite(mem, table, 0, &background) || !capture_palette(mem, table, palette))
         return false;
     g_present.visual.background = std::move(background);
@@ -211,7 +211,7 @@ static bool capture_complete(const Mem& mem)
         return false;
     for (uint32_t i = 0; i < 48; ++i) {
         const uint8_t value = ramp[i] > 63 ? ramp[i] >> 2 : ramp[i];
-        visual.palette[i] = (uint8_t)((value & 63) * 255 / 63);
+        visual.palette[i] = (value & 63) / 63.0f;
     }
     visual.clip_x = mem.i32_rel(kLoadingPane + 4);
     visual.clip_y = mem.i32_rel(kLoadingPane + 8);

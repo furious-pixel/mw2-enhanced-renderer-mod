@@ -656,17 +656,17 @@ static void set_transition(int mode, double now)
     }
 }
 
-static void fill_rect(const Rect &r, int h, const uint8_t *rgb, int index)
+static void fill_rect(const Rect &r, int h, const float *rgb, int index)
 {
     if (!valid_rect(r)) return;
     glEnable(GL_SCISSOR_TEST);
     glScissor(r.left, h - r.bottom, r.right - r.left, r.bottom - r.top);
-    glClearColor(rgb[index * 3] / 255.0f, rgb[index * 3 + 1] / 255.0f,
-                 rgb[index * 3 + 2] / 255.0f, 1.0f);
+    glClearColor(rgb[index * 3], rgb[index * 3 + 1],
+                 rgb[index * 3 + 2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
-static void border(const Rect &r, int h, const uint8_t *rgb, int index, int width)
+static void border(const Rect &r, int h, const float *rgb, int index, int width)
 {
     width = std::max(1, width);
     fill_rect({r.left, r.top, r.right, std::min(r.bottom, r.top + width)}, h, rgb, index);
@@ -701,12 +701,12 @@ static int ensure_meter_resources()
     return 1;
 }
 
-static void palette_color(const uint8_t *rgb, int index, float out[4])
+static void palette_color(const float *rgb, int index, float out[4])
 {
     index = std::clamp(index, 0, 255);
-    out[0] = rgb[index * 3] / 255.0f;
-    out[1] = rgb[index * 3 + 1] / 255.0f;
-    out[2] = rgb[index * 3 + 2] / 255.0f;
+    out[0] = rgb[index * 3];
+    out[1] = rgb[index * 3 + 1];
+    out[2] = rgb[index * 3 + 2];
     out[3] = 1.0f;
 }
 
@@ -723,7 +723,7 @@ static void append_gradient(std::vector<Mw2erHudVertex> &vertices,
     vertex(left, bottom, bl); vertex(right, top, tr); vertex(right, bottom, br);
 }
 
-static void append_solid(std::vector<Mw2erHudVertex> &vertices, const uint8_t *rgb,
+static void append_solid(std::vector<Mw2erHudVertex> &vertices, const float *rgb,
                          int left, int top, int right, int bottom, int index)
 {
     float color[4];
@@ -733,7 +733,7 @@ static void append_solid(std::vector<Mw2erHudVertex> &vertices, const uint8_t *r
 }
 
 static void append_meter_box(std::vector<Mw2erHudVertex> &vertices,
-                             const uint8_t *rgb, const Rect &box,
+                             const float *rgb, const Rect &box,
                              int base_index, int shade_x, int enhanced)
 {
     /* box is inclusive; all emitted triangles use half-open edges. */
@@ -790,7 +790,7 @@ static int filled_count(int length, double amount, int minimum = 0)
 }
 
 static void append_prefix(std::vector<Mw2erHudVertex> &vertices,
-                          const uint8_t *rgb, int lo, int hi,
+                          const float *rgb, int lo, int hi,
                           int cross_lo, int cross_hi, double amount,
                           int fill_color, int empty_color,
                           int horizontal, int from_end, int enhanced)
@@ -822,7 +822,7 @@ static void append_prefix(std::vector<Mw2erHudVertex> &vertices,
 }
 
 static void append_bar_meter(std::vector<Mw2erHudVertex> &vertices,
-                             const uint8_t *rgb, const PowerMeter &meter,
+                             const float *rgb, const PowerMeter &meter,
                              const Rect &group_bounds,
                              const Transform &transform, int enhanced)
 {
@@ -903,7 +903,7 @@ static void append_bar_meter(std::vector<Mw2erHudVertex> &vertices,
 }
 
 static void append_throttle_meter(std::vector<Mw2erHudVertex> &vertices,
-                                  const uint8_t *rgb, const PowerMeter &meter,
+                                  const float *rgb, const PowerMeter &meter,
                                   const Transform &transform, int enhanced)
 {
     const Rect outer = snap_inclusive(meter.rect, transform);
@@ -950,7 +950,7 @@ static int submit_meter_vertices(const std::vector<Mw2erHudVertex> &vertices,
                                   width, height);
 }
 
-static int draw_power_meters(int width, int height, const uint8_t *rgb)
+static int draw_power_meters(int width, int height, const float *rgb)
 {
     if (g_hud.meter_count <= 0) return 1;
     static std::vector<Mw2erHudVertex> vertices;
@@ -1734,7 +1734,7 @@ static void set_text_scissor(const Rect &rect, int width, int height)
 static int draw_text_at(int slot, const char *text, int color_index,
                         TextAlignment horizontal, int vertical_center,
                         float x, float y, int size_px, int width, int height,
-                        const uint8_t *palette)
+                        const float *palette)
 {
     if (!text[0]) return 1;
     if (horizontal != TEXT_LEFT || vertical_center) {
@@ -1751,7 +1751,7 @@ static int draw_text_at(int slot, const char *text, int color_index,
                            color, width, height) == MW2ER_OK;
 }
 
-static int draw_meter_texts(int width, int height, const uint8_t *palette)
+static int draw_meter_texts(int width, int height, const float *palette)
 {
     const int size_px = hud_font_size(height);
     for (int i = 0; i < g_hud.text_count; ++i) {
@@ -1783,7 +1783,7 @@ static int draw_meter_texts(int width, int height, const uint8_t *palette)
 }
 
 static int draw_hud_weapons_panel(int width, int height,
-                                  const uint8_t *palette)
+                                  const float *palette)
 {
     if (!g_hud.weapon_bounds_valid || g_hud.weapon_count <= 0) return 1;
     const Transform transform = weapon_transform(
@@ -1823,7 +1823,7 @@ static int draw_hud_weapons_panel(int width, int height,
     return 1;
 }
 
-static int draw_target_texts(int width, int height, const uint8_t *palette)
+static int draw_target_texts(int width, int height, const float *palette)
 {
     if (!g_hud.target.visible || !g_hud.target_text_count) return 1;
     const Transform frame = animated(g_hud.target.pane,
@@ -1843,7 +1843,7 @@ static int draw_target_texts(int width, int height, const uint8_t *palette)
 }
 
 static int draw_target_nav_sprite(int width, int height,
-                                  const uint8_t *palette,
+                                  const float *palette,
                                   const Transform &frame, const Rect &clip)
 {
     if (!g_hud.target_nav_visible) return 1;
@@ -1915,7 +1915,7 @@ static void clip_target_direction(double dx, double dy, const Rect &pane,
     y = center_y + dy * best;
 }
 
-static int draw_targeting(int width, int height, const uint8_t *palette,
+static int draw_targeting(int width, int height, const float *palette,
                           const Mw2erCamera &camera)
 {
     const TargetingState &state = g_hud.targeting;
@@ -2015,7 +2015,7 @@ static int draw_targeting(int width, int height, const uint8_t *palette,
         screen, palette, width, height);
 }
 
-static int draw_htal(int width, int height, const uint8_t *palette)
+static int draw_htal(int width, int height, const float *palette)
 {
     if (!g_hud.htal_visible || g_hud.mfd_mode != 2 || g_hud.phase != 2)
         return 1;
@@ -2047,7 +2047,7 @@ static int draw_htal(int width, int height, const uint8_t *palette)
     return 1;
 }
 
-static int draw_damage_wireframe(int width, int height, const uint8_t *palette)
+static int draw_damage_wireframe(int width, int height, const float *palette)
 {
     if (!g_hud.mfd.visible || g_hud.phase != 2 || g_hud.mfd_mode > 2 ||
         !g_hud.damage_draw_count || !g_hud.damage_cpu_key) return 1;
@@ -2162,7 +2162,7 @@ static const VideoNoiseDraw *video_noise_draw(int panel_id)
 }
 
 static int draw_video_noise(int panel_id, const Transform &transform,
-                            int width, int height, const uint8_t *palette)
+                            int width, int height, const float *palette)
 {
     VideoNoiseState &noise = g_hud.video_noise;
     if (!noise.ready) return 1;
@@ -2187,7 +2187,7 @@ static int draw_video_noise(int panel_id, const Transform &transform,
 static int draw_mfd_camera_label(const Rect &pane,
                                  const Transform &frame_transform,
                                  int width, int height,
-                                 const uint8_t *palette)
+                                 const float *palette)
 {
     if (g_hud.phase != 2 || g_hud.mfd_mode < 3 || g_hud.mfd_mode > 5)
         return 1;
@@ -2595,7 +2595,7 @@ int32_t mw2er_hud_render(uint32_t overlay, int width, int height, int sample)
     glClear(GL_COLOR_BUFFER_BIT);
     Mw2erSceneExtract *scene = mw2er_scene_extract_current();
     if (!scene) return 0;
-    const uint8_t *palette = scene->palette_rgb;
+    const float *palette = scene->palette_rgb;
     if (g_hud.satellite_damage.active) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return 0;

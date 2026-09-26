@@ -8,7 +8,7 @@ int32_t mw2er_scene_resources_init(void);
 void mw2er_scene_resources_shutdown(void);
 void mw2er_scene_process_init(void);
 void mw2er_scene_process_shutdown(void);
-void mw2er_scene_mission_reset(void);
+void mw2er_scene_mission_reset(bool loading = false);
 int32_t mw2er_scene_capture(Mw2erRenderView primary_view);
 int32_t mw2er_scene_draw(int32_t logical_w, int32_t logical_h, int32_t scene_w, int32_t scene_h);
 int32_t mw2er_scene_draw_view(const Mw2erCamera *camera,

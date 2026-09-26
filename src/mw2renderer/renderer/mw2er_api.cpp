@@ -370,7 +370,7 @@ static int32_t api_capture(const Mw2erCaptureInput *input)
          * renderer-owned boundary between missions within that process. */
         reset_frame_transaction();
         g_state.publication_id = 0;
-        mw2er_scene_mission_reset();
+        mw2er_scene_mission_reset(true);
         mw2er_resources_begin(g_state.resource_generation);
         mw2er_gl_invalidate_publication();
         mw2er_hud_mission_reset();

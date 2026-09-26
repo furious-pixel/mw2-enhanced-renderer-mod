@@ -495,12 +495,12 @@ static void set_scissor(const Mw2erTargetClip &clip, int height)
               std::max(0, clip.bottom - clip.top));
 }
 
-static void palette_color(const uint8_t *palette, int index, float color[4])
+static void palette_color(const float *palette, int index, float color[4])
 {
     index = std::clamp(index, 0, 255);
-    color[0] = palette[index * 3] / 255.0f;
-    color[1] = palette[index * 3 + 1] / 255.0f;
-    color[2] = palette[index * 3 + 2] / 255.0f;
+    color[0] = palette[index * 3];
+    color[1] = palette[index * 3 + 1];
+    color[2] = palette[index * 3 + 2];
     color[3] = 1.0f;
 }
 
@@ -521,7 +521,7 @@ struct VertexWriter {
     }
 
     int rect(float left, float top, float right, float bottom,
-             const uint8_t *palette, int color_index)
+             const float *palette, int color_index)
     {
         if (right <= left || bottom <= top) return 1;
         if (count > 506 && !flush()) return 0;
@@ -544,7 +544,7 @@ struct ScissorCleanup {
 
 static int draw_fills(int panel_index, const Transform &t,
                       const Mw2erTargetClip &clip,
-                      const uint8_t *palette, int width, int height)
+                      const float *palette, int width, int height)
 {
     VertexWriter writer(width, height);
     set_scissor(clip, height);
@@ -563,7 +563,7 @@ static int draw_fills(int panel_index, const Transform &t,
 
 static int draw_compass_ticks(const PanelState &panel, const Transform &t,
                               const Mw2erTargetClip &clip,
-                              const uint8_t *palette, int width, int height)
+                              const float *palette, int width, int height)
 {
     const int source_x = (int)(panel.bounds.left - panel.scale_origin_x);
     const int first = std::clamp(-floor_div(-source_x, 10), 0, 144);
@@ -588,7 +588,7 @@ static int draw_compass_ticks(const PanelState &panel, const Transform &t,
 
 static int append_altimeter_tick(VertexWriter &writer, int tick,
                                   double ox, double oy, double scale,
-                                  const uint8_t *palette)
+                                  const float *palette)
 {
     const double y = 3.0 + tick * 10.0;
     const double left = tick % 2 == 0 ? 40.0 : 43.0;
@@ -608,7 +608,7 @@ static int append_altimeter_tick(VertexWriter &writer, int tick,
 
 static int draw_altimeter_ticks(const PanelState &panel, const Transform &t,
                                 const Mw2erTargetClip &clip,
-                                const uint8_t *palette, int width, int height)
+                                const float *palette, int width, int height)
 {
     const int draw_y = (int)(panel.scale_origin_y - panel.bounds.top);
     const int first = std::max(0, -floor_div(draw_y + 3, 10));
@@ -626,7 +626,7 @@ static int draw_altimeter_ticks(const PanelState &panel, const Transform &t,
 
 static int draw_texts(int panel_index, const PanelState &panel,
                       const Transform &t, const Mw2erTargetClip &clip,
-                      const uint8_t *palette, int width, int height)
+                      const float *palette, int width, int height)
 {
     const double font_scale = resolved_scale(
         height, mw2er_config().hud_font_scaling);
@@ -694,7 +694,7 @@ static const int k_shape_rects[6][3][5] = {
 
 static int draw_rect_shapes(int panel_index, const Transform &t,
                             const Mw2erTargetClip &clip,
-                            const uint8_t *palette, int width, int height)
+                            const float *palette, int width, int height)
 {
     VertexWriter writer(width, height);
     set_scissor(clip, height);
@@ -743,7 +743,7 @@ void mw2er_compass_altimeter_capture(const Mem &mem, uint32_t player,
 }
 
 int mw2er_compass_altimeter_render(int width, int height,
-                                   const uint8_t *palette)
+                                   const float *palette)
 {
     if (!palette || width <= 0 || height <= 0) return 0;
     ScissorCleanup scissor_cleanup;

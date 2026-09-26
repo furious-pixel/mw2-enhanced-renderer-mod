@@ -4,6 +4,7 @@
 #include "resource.h"
 #include "startup_trace.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
@@ -50,7 +51,7 @@ struct CelCacheEntry {
 
 static std::vector<CelCacheEntry> g_cels;
 static uint8_t g_remap[16][256];
-static uint8_t g_palette[256 * 3];
+static float g_palette[256 * 3];
 static bool g_identity_indices[256];
 static uint64_t g_remap_revision;
 static uint64_t g_classification_revision;
@@ -100,37 +101,37 @@ static CelCacheEntry *cel_alloc(void)
     return &g_cels.back();
 }
 
-static float rgb_lum(int r, int g, int b)
+static float rgb_lum(float r, float g, float b)
 {
     return 0.299f * (float)r + 0.587f * (float)g + 0.114f * (float)b;
 }
 
-static void pal_rgb(const uint8_t *pal, int idx, int *r, int *g, int *b)
+static void pal_rgb(const float *pal, int idx, float *r, float *g, float *b)
 {
     int o = (idx & 255) * 3;
-    *r = pal[o];
-    *g = pal[o + 1];
-    *b = pal[o + 2];
+    *r = pal[o] * 255.0f;
+    *g = pal[o + 1] * 255.0f;
+    *b = pal[o + 2] * 255.0f;
 }
 
-static float pal_lum(const uint8_t *pal, int idx)
+static float pal_lum(const float *pal, int idx)
 {
-    int r, g, b;
+    float r, g, b;
     pal_rgb(pal, idx, &r, &g, &b);
     return rgb_lum(r, g, b);
 }
 
-static int pal_manhattan(const uint8_t *pal, int a, int b)
+static float pal_manhattan(const float *pal, int a, int b)
 {
-    int ar, ag, ab, br, bg, bb;
+    float ar, ag, ab, br, bg, bb;
     pal_rgb(pal, a, &ar, &ag, &ab);
     pal_rgb(pal, b, &br, &bg, &bb);
-    return abs(ar - br) + abs(ag - bg) + abs(ab - bb);
+    return fabsf(ar - br) + fabsf(ag - bg) + fabsf(ab - bb);
 }
 
-static void pal_ratio(const uint8_t *pal, int remapped, int base, float *out)
+static void pal_ratio(const float *pal, int remapped, int base, float *out)
 {
-    int rr, rg, rb, br, bg, bb;
+    float rr, rg, rb, br, bg, bb;
     pal_rgb(pal, remapped, &rr, &rg, &rb);
     pal_rgb(pal, base, &br, &bg, &bb);
     out[0] = br <= 0 ? 0.0f : (float)rr / (float)br;
@@ -147,7 +148,7 @@ static void pal_ratio(const uint8_t *pal, int remapped, int base, float *out)
     }
 }
 
-static float rgb_sqerr(int r, int g, int b, float pr, float pg, float pb)
+static float rgb_sqerr(float r, float g, float b, float pr, float pg, float pb)
 {
     float dr = (float)r - pr;
     float dg = (float)g - pg;
@@ -157,17 +158,17 @@ static float rgb_sqerr(int r, int g, int b, float pr, float pg, float pb)
 
 static int select_fog_category(
     int bright_idx,
-    const uint8_t *pal,
+    const float *pal,
     const uint8_t remap[16][256],
-    int term_r,
-    int term_g,
-    int term_b,
+    float term_r,
+    float term_g,
+    float term_b,
     const float *s8_ratio)
 {
     int shade;
     float mse_linear = 0.0f;
     float mse_split = 0.0f;
-    int br, bg, bb;
+    float br, bg, bb;
     float mid[3];
 
     if (s8_ratio[0] >= 1.0f || s8_ratio[1] >= 1.0f || s8_ratio[2] >= 1.0f) {
@@ -178,7 +179,7 @@ static int select_fog_category(
     mid[1] = (float)bg * s8_ratio[1];
     mid[2] = (float)bb * s8_ratio[2];
     for (shade = 1; shade < 15; ++shade) {
-        int gr, gg, gb;
+        float gr, gg, gb;
         float t = (float)shade / 15.0f;
         float lr, lg, lb;
         float sr, sg, sb;
@@ -206,7 +207,7 @@ static int select_fog_category(
 static void classify_remap(
     const uint32_t *hist,
     uint32_t n_opaque,
-    const uint8_t *pal,
+    const float *pal,
     RemapClassification *out)
 {
     int used[256];
@@ -215,18 +216,18 @@ static void classify_remap(
     int bright_idx = 0;
     float bright_lum = -1.0f;
     double total_dist = 0.0;
-    int s0_colors[256][3];
+    float s0_colors[256][3];
     int n_s0 = 0;
     float s0_lums[256];
     int s0_counts[256];
     float s15_lums[256];
     float max_lum;
-    int rgb_spread;
+    float rgb_spread;
     float s0_min = 1e9f, s0_max = -1e9f, s15_min = 1e9f, s15_max = -1e9f;
     float contrast;
     int kind = 0;
-    int term_r, term_g, term_b;
-    int chroma;
+    float term_r, term_g, term_b;
+    float chroma;
 
     out->remap_kind_id = 0;
     out->dark_ratio[0] = out->dark_ratio[1] = out->dark_ratio[2] = 0.0f;
@@ -262,7 +263,7 @@ static void classify_remap(
         int idx = used[i];
         int s0 = g_remap[0][idx];
         int s15 = g_remap[15][idx];
-        int r, g, b;
+        float r, g, b;
         int c;
         int found = 0;
         float lum;
@@ -328,8 +329,8 @@ static void classify_remap(
     }
     {
         int ch;
-        int mn[3] = {255, 255, 255};
-        int mx[3] = {0, 0, 0};
+        float mn[3] = {255, 255, 255};
+        float mx[3] = {0, 0, 0};
         int c;
         for (c = 0; c < n_s0; ++c) {
             for (ch = 0; ch < 3; ++ch) {
@@ -359,7 +360,7 @@ static void classify_remap(
         chroma = term_b;
     }
     {
-        int mn = term_r;
+        float mn = term_r;
         if (term_g < mn) {
             mn = term_g;
         }
@@ -393,7 +394,7 @@ static void classify_remap(
     out->remap_kind_id = kind;
 }
 
-void mw2er_texture_begin_frame(const Mem &mem, const uint8_t *palette_rgb)
+void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb)
 {
     const uint32_t ptr = mem.u32_rel(ADDR_TEXTURE_REMAP_TABLE_PTR);
     const uint8_t *raw = ptr ? mem.view(ptr, sizeof(g_remap)) : nullptr;

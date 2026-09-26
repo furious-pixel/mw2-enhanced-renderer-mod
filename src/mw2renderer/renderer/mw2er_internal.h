@@ -53,7 +53,7 @@ uint32_t mw2er_gl_upload_indexed_sprite(const Mw2erSprite &sprite);
 int32_t mw2er_gl_draw_indexed_sprites(
     const Mw2erSprite &sprite, uint32_t texture,
     const Mw2erIndexedSpriteDraw *draws, int32_t draw_count,
-    const uint8_t *palette,
+    const float *palette,
     int32_t viewport_width, int32_t viewport_height);
 
 #endif

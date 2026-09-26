@@ -34,7 +34,7 @@ uint32_t mw2er_resolve_cached_shape(const Mem &mem, int32_t resource_index);
 struct Mw2erLoadingVisual {
     Mw2erSprite background;
     std::vector<Mw2erSprite> strips;
-    uint8_t palette[256 * 3] = {};
+    float palette[256 * 3] = {};
     int32_t clip_x = 0;
     int32_t clip_y = 0;
     int32_t strip_x = 0;

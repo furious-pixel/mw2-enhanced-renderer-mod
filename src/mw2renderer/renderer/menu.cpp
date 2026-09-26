@@ -621,12 +621,12 @@ static void capture_handlers(const Mem &mem, int handler_mask,
             g_menu.pages[i].valid = 0;
 }
 
-static void palette_color(const uint8_t *palette, int index, float out[4])
+static void palette_color(const float *palette, int index, float out[4])
 {
     index = std::clamp(index, 0, 255);
-    out[0] = palette[index * 3] / 255.0f;
-    out[1] = palette[index * 3 + 1] / 255.0f;
-    out[2] = palette[index * 3 + 2] / 255.0f;
+    out[0] = palette[index * 3];
+    out[1] = palette[index * 3 + 1];
+    out[2] = palette[index * 3 + 2];
     out[3] = 1.0f;
 }
 
@@ -663,7 +663,7 @@ static int menu_slot(int handler_id, int role, int item)
 }
 
 static int draw_text(int slot, const char *text, float x, float y,
-                     int color_index, const uint8_t *palette,
+                     int color_index, const float *palette,
                      int width, int height, int opaque)
 {
     if (!text[0]) return 1;
@@ -757,7 +757,7 @@ static void append_message_bar(MessageBarVertex *vertices, int &count,
     }
 }
 
-static int render_short_messages(const uint8_t *palette,
+static int render_short_messages(const float *palette,
                                  int width, int height)
 {
     if (!g_menu.messages[0].text[0] && !g_menu.messages[1].text[0]) return 1;
@@ -812,7 +812,7 @@ static GLuint sprite_texture(int reference)
 
 static int draw_sprite(int reference, float x, float y, float scale,
                        const Rect &clip, int color_override,
-                       const uint8_t *palette, int width, int height)
+                       const float *palette, int width, int height)
 {
     const GLuint texture = sprite_texture(reference);
     if (!texture) return reference < 0;
@@ -866,7 +866,7 @@ static void page_origin(const MenuPage &page, int width, int height,
 }
 
 static int draw_slider(const MenuItem &item, float origin_x, float origin_y,
-                       const Rect &clip, const uint8_t *palette,
+                       const Rect &clip, const float *palette,
                        int width, int height)
 {
     float x = origin_x + item.text_x;
@@ -894,7 +894,7 @@ static int draw_slider(const MenuItem &item, float origin_x, float origin_y,
                                         clip, -1, palette, width, height);
 }
 
-static int render_page(const MenuPage &page, const uint8_t *palette,
+static int render_page(const MenuPage &page, const float *palette,
                        int width, int height)
 {
     if (!page.valid) return 1;
@@ -996,7 +996,7 @@ static int render_page(const MenuPage &page, const uint8_t *palette,
     return 1;
 }
 
-static int render_objectives(const uint8_t *palette, int width, int height)
+static int render_objectives(const float *palette, int width, int height)
 {
     const Objectives &objectives = g_menu.objectives;
     if (!objectives.visible) return 1;
@@ -1108,7 +1108,7 @@ void mw2er_menu_capture_late(const Mw2erMemoryView &view)
 }
 
 int32_t mw2er_menu_render(int32_t width, int32_t height,
-                          const uint8_t *palette)
+                          const float *palette)
 {
     if (!palette || width <= 0 || height <= 0) return MW2ER_ERR_INVALID_ARGUMENT;
     if (g_menu.retired_count != 0) {

@@ -474,8 +474,99 @@ void mw2er_partition_reset(Mw2erGeomPartition &p)
     p.aero_fans.clear();
 }
 
-void mw2er_extract_mission_reset(void)
+struct PaletteFadePolicy {
+    uint32_t delta = UINT32_MAX;
+    bool observed = false;
+    bool loading = false;
+    bool transient = false;
+};
+
+static PaletteFadePolicy g_palette_fade;
+
+static void capture_scene_palette(const Mem &mem, float *rgb)
 {
+    if (g_palette_fade.delta != UINT32_MAX && g_palette_fade.delta != mem.delta)
+        g_palette_fade = {};
+    g_palette_fade.delta = mem.delta;
+
+    uint8_t current[768];
+    int8_t difference[768];
+    int16_t residual[768];
+    int32_t total = 0;
+    bool smooth = false;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        // Stable slot, target, source, temporary return marker, countdown.
+        int32_t control[5], control_after[5];
+        if (!mem.read_rel(0x000A7174, control, sizeof(control))) break;
+        if (control[3] != 0) g_palette_fade.transient = true;
+        if (control[4] <= 0) {
+            g_palette_fade.transient = false;
+            g_palette_fade.observed = true;
+            break;
+        }
+        // A cold attachment cannot distinguish a black-flash return from
+        // mission entry. A loading boundary or continuous observation can.
+        if (!g_palette_fade.observed &&
+            (control[2] != 16 || !g_palette_fade.loading) &&
+            control[2] >= 16 && control[2] <= 19 && control[1] == control[0])
+            g_palette_fade.transient = true;
+        g_palette_fade.observed = true;
+        g_palette_fade.loading = false;
+        if (g_palette_fade.transient) break;
+
+        uint8_t header[25], header_after[25];
+        if (!mem.read_rel(0x0015FF1C, header, sizeof(header))) break;
+        uint32_t pointers[3];
+        int32_t completed, count;
+        memcpy(pointers, header, sizeof(pointers));
+        memcpy(&total, header + 12, sizeof(total));
+        memcpy(&completed, header + 16, sizeof(completed));
+        memcpy(&count, header + 21, sizeof(count));
+        if (total <= 0 || completed < 0 || completed >= total ||
+            header[20] != 0 || count != 256 ||
+            !pointers[0] || !pointers[1] || !pointers[2] ||
+            !mem.view(pointers[0], sizeof(current)) ||
+            !mem.view(pointers[1], sizeof(difference)) ||
+            !mem.view(pointers[2], sizeof(residual))) break;
+        // Pointer fields are already runtime addresses. Copy only while the
+        // DDA is active, then reject completion/retargeting during the copy.
+        if (!mem.read(pointers[0], current, sizeof(current)) ||
+            !mem.read(pointers[1], difference, sizeof(difference)) ||
+            !mem.read(pointers[2], residual, sizeof(residual))) break;
+        if (!mem.read_rel(0x000A7174, control_after, sizeof(control_after)) ||
+            !mem.read_rel(0x0015FF1C, header_after, sizeof(header_after))) break;
+        if (control_after[3] != 0) g_palette_fade.transient = true;
+        if (memcmp(control, control_after, sizeof(control)) != 0 ||
+            memcmp(header, header_after, sizeof(header)) != 0) continue;
+        smooth = true;
+        for (int i = 0; i < 768; ++i) {
+            if (current[i] > 63 || difference[i] < -63 || difference[i] > 63 ||
+                residual[i] <= -total || residual[i] >= total) {
+                smooth = false;
+                break;
+            }
+        }
+        break;
+    }
+    if (!smooth && !mem.read_rel(ADDR_PALETTE, current, sizeof(current)))
+        memset(current, 0, sizeof(current));
+    for (int i = 0; i < 768; ++i) {
+        float component = (float)(current[i] & 63);
+        // PRIMARY (HUD entry) and LATE capture precede frame_submit's palette
+        // step. Predict that one step for the submitted image, including the
+        // final endpoint. Repeated K stays fixed; no wall-clock fade or lag.
+        // Every capture adopts the current object, so pointer/target changes
+        // and K resets need no retained interpolation state.
+        if (smooth) component += ((float)residual[i] + difference[i]) / total;
+        rgb[i] = std::clamp(component, 0.0f, 63.0f) / 63.0f;
+    }
+    // Monitor brightness remains the continuous lookup in the compositor.
+}
+
+void mw2er_extract_mission_reset(bool loading)
+{
+    g_palette_fade = {};
+    g_palette_fade.loading = loading;
     g_topo_cache.clear();
     g_wtbo_meshes.clear();
     g_lod_history.clear();
@@ -3697,10 +3788,10 @@ static void prepare_player_model(const Mem &mem, Mw2erCamera &cam)
 }
 
 int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
-                         int emit_geometry, Mw2erRenderView render_view)
+                         int emit_geometry, Mw2erRenderView render_view,
+                         const float *shared_palette)
 {
     Mem mem = Mem::from(view);
-    uint8_t raw_pal[768];
     uint32_t head;
     uint32_t node;
     uint32_t seen[MAX_NODES];
@@ -3761,13 +3852,10 @@ int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
         ex.lighting.fog_distance = 0;
         ex.lighting.fog_distance_world = 0.0f;
     }
-    if (!mem.read_rel(ADDR_PALETTE, raw_pal, 768)) {
-        memset(raw_pal, 0, sizeof(raw_pal));
-    }
-    for (int i = 0; i < 768; ++i) {
-        uint8_t dac = (uint8_t)(raw_pal[i] & 0x3F);
-        ex.palette_rgb[i] = (uint8_t)(((int)dac * 255) / 63);
-    }
+    if (shared_palette)
+        memcpy(ex.palette_rgb, shared_palette, sizeof(ex.palette_rgb));
+    else
+        capture_scene_palette(mem, ex.palette_rgb);
     ex.sky_palette_index = mem.u8_rel(ADDR_SKY_PALETTE_INDEX);
     ex.ground_palette_index = mem.u8_rel(ADDR_GROUND_PALETTE_INDEX);
     ex.sky_visible = mem.u32_rel(ADDR_SKY_VISIBLE) != 0;
@@ -3784,9 +3872,9 @@ int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
         if (gi > 255) {
             gi = 255;
         }
-        ex.ground_color[0] = ex.palette_rgb[gi * 3 + 0] / 255.0f;
-        ex.ground_color[1] = ex.palette_rgb[gi * 3 + 1] / 255.0f;
-        ex.ground_color[2] = ex.palette_rgb[gi * 3 + 2] / 255.0f;
+        ex.ground_color[0] = ex.palette_rgb[gi * 3 + 0];
+        ex.ground_color[1] = ex.palette_rgb[gi * 3 + 1];
+        ex.ground_color[2] = ex.palette_rgb[gi * 3 + 2];
     }
     if (!ex.ground_visible) {
         ex.ground_color[0] = 0.0f;

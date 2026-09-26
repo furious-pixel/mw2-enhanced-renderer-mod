@@ -1128,7 +1128,7 @@ int32_t mw2er_scene_resources_init(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGB8, 256, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        GL_TEXTURE_2D, 0, GL_RGB32F, 256, 1, 0, GL_RGB, GL_FLOAT, NULL);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glBindTexture(GL_TEXTURE_2D, 0);
     for (SceneGeometry *scene : {&g_primary, &g_mfd}) {
@@ -1169,13 +1169,13 @@ void mw2er_scene_resources_shutdown(void)
 }
 
 /* Upload the current palette and leave it bound for palette-based draws. */
-static void upload_and_bind_palette(const uint8_t *rgb)
+static void upload_and_bind_palette(const float *rgb)
 {
     glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_PALETTE);
     glBindTexture(GL_TEXTURE_2D, g_gpu.palette_tex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexSubImage2D(
-        GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+        GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGB, GL_FLOAT, rgb);
 }
 
 static size_t grow_cap(size_t cap, size_t bytes)
@@ -1651,7 +1651,7 @@ void mw2er_scene_process_init(void)
     g_debug_groups_requested = getenv("MW2ER_GL_DEBUG_GROUPS") != NULL;
 }
 
-void mw2er_scene_mission_reset(void)
+void mw2er_scene_mission_reset(bool loading)
 {
     g_required_geometry = 0;
     g_primary_view = MW2ER_VIEW_NONE;
@@ -1662,7 +1662,7 @@ void mw2er_scene_mission_reset(void)
         scene->changed = 0;
     }
     mw2er_texture_free_cache();
-    mw2er_extract_mission_reset();
+    mw2er_extract_mission_reset(loading);
     g_gpu_mission_reset_pending = 1;
     g_last_extract_ms = 0.0;
     g_last_draw_ms = 0.0;
@@ -2007,7 +2007,8 @@ int32_t mw2er_scene_capture(Mw2erRenderView primary_view)
     }
     g_primary.changed = 1;
     if (needed != primary_geometry) {
-        if (!mw2er_extract_scene(*view, g_mfd.ex, 1, mfd_view)) {
+        if (!mw2er_extract_scene(*view, g_mfd.ex, 1, mfd_view,
+                                 g_primary.ex.palette_rgb)) {
             return MW2ER_ERR_GENERIC;
         }
         g_mfd.changed = 1;

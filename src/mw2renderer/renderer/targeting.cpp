@@ -299,7 +299,7 @@ static int ensure_brackets(double panel_scale)
 
 static int draw(const Mw2erSprite &sprite, GLuint texture,
                 double anchor_x, double anchor_y, double scale, int color,
-                const Mw2erTargetClip &clip, const uint8_t *palette,
+                const Mw2erTargetClip &clip, const float *palette,
                 int width, int height, int snap)
 {
     Mw2erIndexedSpriteDraw command = {};
@@ -366,7 +366,7 @@ int mw2er_targeting_capture_sprite(const Mem &mem, int resource)
 
 int mw2er_targeting_draw_sprite(int reference, double x, double y,
                                 double scale, const Mw2erTargetClip &clip,
-                                const uint8_t *palette, int width, int height,
+                                const float *palette, int width, int height,
                                 int snap_to_pixels)
 {
     delete_retired_textures();
@@ -382,7 +382,7 @@ int mw2er_targeting_draw_sprite(int reference, double x, double y,
 int mw2er_targeting_draw_caret(int direction, double x, double y, int color,
                                double marker_scale,
                                const Mw2erTargetClip &clip,
-                               const uint8_t *palette, int width, int height)
+                               const float *palette, int width, int height)
 {
     delete_retired_textures();
     if (direction < 0 || direction > 3 ||
@@ -395,7 +395,7 @@ int mw2er_targeting_draw_caret(int direction, double x, double y, int color,
 int mw2er_targeting_draw_nav(double x, double y, int color,
                              double marker_scale,
                              const Mw2erTargetClip &clip,
-                             const uint8_t *palette, int width, int height)
+                             const float *palette, int width, int height)
 {
     delete_retired_textures();
     if (!ensure_carets(marker_scale)) return 0;
@@ -407,7 +407,7 @@ int mw2er_targeting_draw_nav(double x, double y, int color,
 int mw2er_targeting_draw_bracket(double x, double y, double radius, int color,
                                  double panel_scale,
                                  const Mw2erTargetClip &clip,
-                                 const uint8_t *palette, int width, int height)
+                                 const float *palette, int width, int height)
 {
     delete_retired_textures();
     if (!ensure_brackets(panel_scale)) return 0;
@@ -450,7 +450,7 @@ static void acquisition_corners(double x, double y, double end_extent,
 
 static int draw_acquisition_trail(double x, double y, double end_extent,
                                    double progress, double turns, double span,
-                                   int color, const uint8_t *palette,
+                                   int color, const float *palette,
                                    int width, int height)
 {
     // Analytically sweep the same live-target trajectory, independent of FPS.
@@ -467,9 +467,9 @@ static int draw_acquisition_trail(double x, double y, double end_extent,
     AcquisitionPoint previous[4];
     acquisition_corners(x, y, end_extent, oldest, turns, width, height, previous);
     float previous_alpha = 0.0f;
-    const float red = palette[color * 3] / 255.0f;
-    const float green = palette[color * 3 + 1] / 255.0f;
-    const float blue = palette[color * 3 + 2] / 255.0f;
+    const float red = palette[color * 3];
+    const float green = palette[color * 3 + 1];
+    const float blue = palette[color * 3 + 2];
     glEnable(GL_BLEND);
     // Premultiplied source-over on both RGB and alpha: crossings build opacity
     // as 1 - product(1 - alpha), bounded by one, including later composition.
@@ -537,7 +537,7 @@ static int draw_acquisition_trail(double x, double y, double end_extent,
 int mw2er_targeting_draw_acquisition(
     double x, double y, double radius, int color, double panel_scale,
     double progress, double turns, double trail_span, float stroke,
-    const uint8_t *palette, int width, int height)
+    const float *palette, int width, int height)
 {
     const double end_extent = radius + std::max(1.0, std::ceil(9.0 * panel_scale)) + 2.0;
     glDisable(GL_SCISSOR_TEST);
@@ -559,7 +559,7 @@ int mw2er_targeting_draw_acquisition(
 int mw2er_targeting_draw_compass_caret(
     int direction, double x, double y, int edge_attachment,
     double panel_scale, const Mw2erTargetClip &clip,
-    const uint8_t *palette, int width, int height)
+    const float *palette, int width, int height)
 {
     delete_retired_textures();
     if (direction < 0 || direction > 3 ||

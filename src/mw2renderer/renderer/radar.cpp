@@ -202,12 +202,12 @@ static Rect transform_rect(const Rect &r, const Transform &t,
     };
 }
 
-static void palette_color(const uint8_t *palette, int index, float out[4])
+static void palette_color(const float *palette, int index, float out[4])
 {
     index = std::clamp(index, 0, 255);
-    out[0] = palette[index * 3] / 255.0f;
-    out[1] = palette[index * 3 + 1] / 255.0f;
-    out[2] = palette[index * 3 + 2] / 255.0f;
+    out[0] = palette[index * 3];
+    out[1] = palette[index * 3 + 1];
+    out[2] = palette[index * 3 + 2];
     out[3] = 1.0f;
 }
 
@@ -465,7 +465,7 @@ static int ensure_gl()
 } // namespace
 
 int mw2er_hud_draw_lines(const Mw2erHudLine *lines, int count, float stroke,
-                      int width, int height, const uint8_t *palette,
+                      int width, int height, const float *palette,
                       bool accumulate_alpha)
 {
     if (!count) return 1;
@@ -531,7 +531,7 @@ static double effective_fov_half(int width, int height)
 }
 
 static int draw_fov(const Transform &t, float stroke, int width, int height,
-                    const uint8_t *palette)
+                    const float *palette)
 {
     if (!g_radar.fov_visible) return 1;
     Mw2erHudLine lines[2];
@@ -585,7 +585,7 @@ static void quad(Mw2erHudVertex *out, int &count, float left, float top,
 }
 
 static int draw_blips(const Transform &t, float artwork_scale,
-                      int width, int height, const uint8_t *palette)
+                      int width, int height, const float *palette)
 {
     Mw2erHudVertex vertices[504];
     int count = 0;
@@ -629,7 +629,7 @@ static GLuint sprite_texture(int reference)
 
 static int draw_sprite_batch(int reference, const RadarNav *entries, int count,
                              const Transform &t, float artwork_scale,
-                             int width, int height, const uint8_t *palette)
+                             int width, int height, const float *palette)
 {
     if (reference < 0) return 1;
     const GLuint texture = sprite_texture(reference);
@@ -669,7 +669,7 @@ static int draw_sprite_batch(int reference, const RadarNav *entries, int count,
 
 static int draw_one_sprite(int reference, float x, float y,
                            const Transform &t, float artwork_scale,
-                           int width, int height, const uint8_t *palette)
+                           int width, int height, const float *palette)
 {
     RadarNav entry = {x, y, reference};
     return draw_sprite_batch(reference, &entry, 1, t, artwork_scale,
@@ -677,7 +677,7 @@ static int draw_one_sprite(int reference, float x, float y,
 }
 
 static int draw_ellipse(const Transform &t, float stroke, int width, int height,
-                        const uint8_t *palette)
+                        const float *palette)
 {
     if (!g_radar.ellipse_visible || g_radar.mode == 4 ||
         g_radar.radius_x <= 0.5 ||
@@ -735,7 +735,7 @@ static int ray_to_view_edge(double cx, double cy, double dx, double dy,
     return 1;
 }
 
-static int draw_satellite_target(int width, int height, const uint8_t *palette)
+static int draw_satellite_target(int width, int height, const float *palette)
 {
     if (!g_radar.selected_valid) return 1;
     Mw2erSceneExtract *scene = mw2er_scene_extract_current();
@@ -820,7 +820,7 @@ static int draw_satellite_target(int width, int height, const uint8_t *palette)
 
 static int draw_text(int slot, const char *text, int x, int y,
                      const Transform &t, int color_index,
-                     int width, int height, const uint8_t *palette)
+                     int width, int height, const float *palette)
 {
     if (!text[0]) return 1;
     const int size = std::max(1, (int)std::nearbyint(
@@ -1056,7 +1056,7 @@ void mw2er_radar_capture(const Mem &mem, int player_slot, uint32_t player,
         mem, shape_table, slot, selected_sub, style);
 }
 
-int mw2er_radar_render(int width, int height, const uint8_t *palette,
+int mw2er_radar_render(int width, int height, const float *palette,
                        int draw_text_enabled)
 {
     if (g_gl.retired_count != 0) {
