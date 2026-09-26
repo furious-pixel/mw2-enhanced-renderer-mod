@@ -347,9 +347,8 @@ SCHEMA = [
                     _item("font_scaling", "Font scaling", step=0.05, unit="%"),
                     _item("target_marker_scaling", "Target marker scaling",
                           step=0.05, unit="%"),
-                    _item("damage_wireframe_scaling", "Damage wireframe scale",
-                          control="slider",
-                          choice_labels=("Auto", "1×", "2×", "3×")),
+                    _item("damage_wireframe_scaling", "Damage wireframe scale"),
+                    _item("damage_wireframe_crt", "Damage wireframe CRT smoothing"),
                 ],
             ),
             _group(

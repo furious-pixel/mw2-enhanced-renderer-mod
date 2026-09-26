@@ -27,10 +27,8 @@ CONFIG_SCHEMA = {
         "viewport_scaling": (1.0, 0.0, 1.0),
         "font_scaling": (0.6, 0.0, 1.0),
         "target_marker_scaling": (0.0, 0.0, 1.0),
-        "damage_wireframe_scaling": (
-            "auto",
-            ("auto", "1x", "2x", "3x"),
-        ),
+        "damage_wireframe_scaling": "auto",
+        "damage_wireframe_crt": True,
         "middle_panel_vertical_position": (357.0 / 768.0, 0.0, 1.0),
         "top_panel_widescreen_position": (0.0, 0.0, 1.0),
         "middle_panel_widescreen_position": (0.0, 0.0, 1.0),
@@ -172,7 +170,8 @@ CONFIG_HELP = {
         "viewport_scaling": "Scale camera panes from native size toward viewport-height scaling.",
         "font_scaling": "Scale renderer text from native size toward viewport-height scaling.",
         "target_marker_scaling": "Scale the center reticle, NAV circle, and offscreen target arrows.",
-        "damage_wireframe_scaling": "Scale the damage wireframe using automatic integer fit or a fixed 1x, 2x, or 3x of its original pixel size.",
+        "damage_wireframe_scaling": "Use auto to fit the damage wireframe, or a fixed pixel scale from 0.25x to 8x (for example 1.5x).",
+        "damage_wireframe_crt": "Smooth fractional damage-wireframe scaling with subtle scanlines and glow. Disable for the original crisp pixel rendering and integer automatic fit.",
         "middle_panel_vertical_position": "Position middle HUD panels vertically, from the top (0) to the bottom (1) of the reference HUD area.",
         "top_panel_widescreen_position": "Move top HUD panels from the centered 4:3 layout (0) toward the widescreen edges (1).",
         "middle_panel_widescreen_position": "Move middle HUD panels from the centered 4:3 layout (0) toward the widescreen edges (1).",
@@ -361,6 +360,15 @@ def _config_values(section, schema):
 def normalize_config_values(values):
     """Return a copy with cross-setting configuration rules applied."""
     values = dict(values)
+    if "damage_wireframe_scaling" in values:
+        raw = str(values["damage_wireframe_scaling"]).strip().lower()
+        try:
+            scale = float(raw.removesuffix("x"))
+        except ValueError:
+            scale = 0.0
+        values["damage_wireframe_scaling"] = (
+            f"{scale:g}x" if 0.25 <= scale <= 8.0 else "auto"
+        )
     if "targeting_animation_turns" in values:
         turns = max(0.0, min(10.0, float(values["targeting_animation_turns"])))
         values["targeting_animation_turns"] = math.floor(turns * 4.0 + 0.5) / 4.0

@@ -293,6 +293,9 @@ struct HudState {
 static HudState g_hud;
 static SatelliteDamageState g_satellite_damage_latch;
 static GlProgram g_meter_program;
+static GlProgram g_damage_program;
+static AuxTarget g_damage_target;
+static GLuint g_damage_vao;
 static GLuint g_meter_vao;
 static GLuint g_meter_vbo;
 static constexpr double k_fixed = 65536.0;
@@ -320,7 +323,7 @@ static void delete_target(AuxTarget &t)
     t = {};
 }
 
-static int ensure_target(AuxTarget &t, int w, int h)
+static int ensure_target(AuxTarget &t, int w, int h, bool depth = true)
 {
     if (t.fbo && t.w == w && t.h == h) return 1;
     AuxTarget candidate = {};
@@ -332,18 +335,21 @@ static int ensure_target(AuxTarget &t, int w, int h)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glGenRenderbuffers(1, &candidate.depth);
-    glBindRenderbuffer(GL_RENDERBUFFER, candidate.depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+    if (depth) {
+        glGenRenderbuffers(1, &candidate.depth);
+        glBindRenderbuffer(GL_RENDERBUFFER, candidate.depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+    }
     glGenFramebuffers(1, &candidate.fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, candidate.fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_2D, candidate.color, 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                              GL_RENDERBUFFER, candidate.depth);
+    if (depth)
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, candidate.depth);
     candidate.w = w;
     candidate.h = h;
-    if (!candidate.fbo || !candidate.color || !candidate.depth ||
+    if (!candidate.fbo || !candidate.color || (depth && !candidate.depth) ||
         glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         delete_target(candidate);
         return 0;
@@ -2047,7 +2053,7 @@ static int draw_htal(int width, int height, const float *palette)
     return 1;
 }
 
-static int draw_damage_wireframe(int width, int height, const float *palette)
+static int draw_damage_wireframe(GLuint overlay, int width, int height, const float *palette)
 {
     if (!g_hud.mfd.visible || g_hud.phase != 2 || g_hud.mfd_mode > 2 ||
         !g_hud.damage_draw_count || !g_hud.damage_cpu_key) return 1;
@@ -2066,11 +2072,11 @@ static int draw_damage_wireframe(int width, int height, const float *palette)
     const double sprite_bottom = sprite_top + g_hud.damage_sprite.height;
     const double center_x = (pane.left + pane.right) * 0.5;
     const double center_y = (pane.top + pane.bottom) * 0.5;
+    const bool crt = mw2er_config().hud_damage_wireframe_crt != 0;
     double scale = mw2er_config().hud_damage_wireframe_scale;
     if (scale == 0) {
-        const int requested = std::max(1,
-            (int)std::floor(resolved_scale(
-                height, mw2er_config().hud_viewport_scaling) + 0.5));
+        const double automatic = resolved_scale(height, mw2er_config().hud_viewport_scaling);
+        const double requested = crt ? automatic : std::max(1.0, std::floor(automatic + 0.5));
         double max_fit = requested;
         const double left = std::max((double)pane.left, sprite_left);
         const double top = std::max((double)pane.top, sprite_top);
@@ -2088,7 +2094,7 @@ static int draw_damage_wireframe(int width, int height, const float *palette)
         if (bottom > center_y)
             max_fit = std::min(max_fit,
                 (pane.bottom - center_y) * frame.sy / (bottom - center_y));
-        scale = std::max(1, std::min(requested, (int)max_fit));
+        scale = crt ? max_fit : std::max(1.0, std::min(requested, std::floor(max_fit)));
     }
     double origin_x;
     double origin_y;
@@ -2107,22 +2113,84 @@ static int draw_damage_wireframe(int width, int height, const float *palette)
         origin_y = std::nearbyint(final_y - center_y * scale);
     }
     Mw2erIndexedSpriteDraw commands[MAX_DAMAGE_DRAWS];
+    // Source-space bounds include every segment placement, regardless of mech,
+    // and transparent padding keeps the filter away from clamped texture edges.
+    double source_left = sprite_left, source_top = sprite_top;
+    double source_right = sprite_right, source_bottom = sprite_bottom;
+    if (crt) {
+        for (int i = 0; i < g_hud.damage_layout.part_count; ++i) {
+            const DamagePartLayout &part = g_hud.damage_layout.parts[i];
+            const double left = part.x + g_hud.damage_sprite.x_offset;
+            const double top = part.y + g_hud.damage_sprite.y_offset;
+            source_left = std::min(source_left, left);
+            source_top = std::min(source_top, top);
+            source_right = std::max(source_right, left + g_hud.damage_sprite.width);
+            source_bottom = std::max(source_bottom, top + g_hud.damage_sprite.height);
+        }
+        source_left -= 3; source_top -= 3;
+        source_right += 3; source_bottom += 3;
+    }
+    const double draw_scale = crt ? 1.0 : scale;
+    const double draw_x = crt ? -source_left : origin_x;
+    const double draw_y = crt ? -source_top : origin_y;
     for (int i = 0; i < g_hud.damage_draw_count; ++i) {
         const DamageDraw &draw = g_hud.damage_draws[i];
         Mw2erIndexedSpriteDraw &command = commands[i];
-        command.x = (float)(origin_x + draw.x * scale);
-        command.y = (float)(origin_y + draw.y * scale);
-        command.scale_x = (float)scale;
-        command.scale_y = (float)scale;
-        command.clip_left = (int)std::floor(origin_x + draw.clip.left * scale);
-        command.clip_top = (int)std::floor(origin_y + draw.clip.top * scale);
-        command.clip_right = (int)std::ceil(origin_x + draw.clip.right * scale);
-        command.clip_bottom = (int)std::ceil(origin_y + draw.clip.bottom * scale);
+        command.x = (float)(draw_x + draw.x * draw_scale);
+        command.y = (float)(draw_y + draw.y * draw_scale);
+        command.scale_x = (float)draw_scale;
+        command.scale_y = (float)draw_scale;
+        command.clip_left = (int)std::floor(draw_x + draw.clip.left * draw_scale);
+        command.clip_top = (int)std::floor(draw_y + draw.clip.top * draw_scale);
+        command.clip_right = (int)std::ceil(draw_x + draw.clip.right * draw_scale);
+        command.clip_bottom = (int)std::ceil(draw_y + draw.clip.bottom * draw_scale);
         command.color_override = draw.color_override;
     }
-    return mw2er_gl_draw_indexed_sprites(
+    if (!crt) return mw2er_gl_draw_indexed_sprites(
         g_hud.damage_sprite, g_hud.damage_texture,
         commands, g_hud.damage_draw_count, palette, width, height) == MW2ER_OK;
+
+    if (!g_damage_program.ok()) {
+        const std::string dir = mw2er_shader_dir();
+        if (!g_damage_program.load((dir + "/damage_crt.vert").c_str(),
+                                   (dir + "/damage_crt.frag").c_str())) return 0;
+        glGenVertexArrays(1, &g_damage_vao);
+    }
+    const int source_w = (int)(source_right - source_left);
+    const int source_h = (int)(source_bottom - source_top);
+    if (!ensure_target(g_damage_target, source_w, source_h, false)) {
+        glBindFramebuffer(GL_FRAMEBUFFER, overlay);
+        return 0;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_damage_target.fbo);
+    glViewport(0, 0, source_w, source_h);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    const int drawn = mw2er_gl_draw_indexed_sprites(
+        g_hud.damage_sprite, g_hud.damage_texture, commands,
+        g_hud.damage_draw_count, palette, source_w, source_h) == MW2ER_OK;
+    glBindFramebuffer(GL_FRAMEBUFFER, overlay);
+    glViewport(0, 0, width, height);
+    if (!drawn) return 0;
+    g_damage_program.use();
+    g_damage_program.set("u_source", 0);
+    g_damage_program.set2("u_viewport_size", (float)width, (float)height);
+    g_damage_program.set2("u_origin", (float)(origin_x + source_left * scale),
+                         (float)(origin_y + source_top * scale));
+    g_damage_program.set2("u_size", (float)(source_w * scale), (float)(source_h * scale));
+    g_damage_program.set("u_scale", (float)scale);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_damage_target.color);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glBindVertexArray(g_damage_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+    glDisable(GL_BLEND);
+    return 1;
 }
 
 static int ensure_video_noise_texture()
@@ -2258,6 +2326,10 @@ void mw2er_hud_gl_reset(void)
     mw2er_targeting_gl_reset();
     delete_target(g_hud.target_gpu);
     delete_target(g_hud.mfd_gpu);
+    delete_target(g_damage_target);
+    g_damage_program.destroy();
+    if (g_damage_vao) glDeleteVertexArrays(1, &g_damage_vao);
+    g_damage_vao = 0;
     if (g_hud.damage_texture) glDeleteTextures(1, &g_hud.damage_texture);
     if (g_hud.video_noise.texture)
         glDeleteTextures(1, &g_hud.video_noise.texture);
@@ -2664,7 +2736,7 @@ int32_t mw2er_hud_render(uint32_t overlay, int width, int height, int sample)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
     }
-    if (!draw_damage_wireframe(width, height, palette)) {
+    if (!draw_damage_wireframe(overlay, width, height, palette)) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
     }

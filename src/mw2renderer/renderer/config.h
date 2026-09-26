@@ -29,7 +29,8 @@ struct Mw2erRendererConfig {
     float hud_viewport_scaling;
     float hud_font_scaling;
     float hud_target_marker_scaling;
-    int hud_damage_wireframe_scale; // 0 = auto; otherwise original-pixel multiple
+    float hud_damage_wireframe_scale; // 0 = auto; otherwise original-pixel multiple
+    int hud_damage_wireframe_crt;
     float hud_middle_panel_vertical_position;
     float hud_top_widescreen_position;
     float hud_middle_widescreen_position;

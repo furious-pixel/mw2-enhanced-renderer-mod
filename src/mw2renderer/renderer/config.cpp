@@ -38,6 +38,7 @@ static void set_defaults(Mw2erRendererConfig &c)
     c.hud_font_scaling = 0.6f;
     c.hud_target_marker_scaling = 0.0f;
     c.hud_damage_wireframe_scale = 0;
+    c.hud_damage_wireframe_crt = 1;
     c.hud_middle_panel_vertical_position = 0.550781f;
     c.hud_top_widescreen_position = 0.5f;
     c.hud_middle_widescreen_position = 0.25f;
@@ -248,10 +249,12 @@ static void apply_hud_key(const char *key, const char *value)
     } else if (strcmp(key, "target_marker_scaling") == 0) {
         g_cfg.hud_target_marker_scaling = (float)atof(value);
     } else if (strcmp(key, "damage_wireframe_scaling") == 0) {
-        g_cfg.hud_damage_wireframe_scale =
-            _stricmp(value, "1x") == 0 ? 1 :
-            _stricmp(value, "2x") == 0 ? 2 :
-            _stricmp(value, "3x") == 0 ? 3 : 0;
+        char *end = nullptr;
+        const float scale = strtof(value, &end);
+        g_cfg.hud_damage_wireframe_scale = scale >= 0.25f && scale <= 8.0f &&
+            (*end == '\0' || _stricmp(end, "x") == 0) ? scale : 0;
+    } else if (strcmp(key, "damage_wireframe_crt") == 0) {
+        g_cfg.hud_damage_wireframe_crt = parse_bool(value, g_cfg.hud_damage_wireframe_crt);
     } else if (strcmp(key, "middle_panel_vertical_position") == 0) {
         g_cfg.hud_middle_panel_vertical_position = (float)atof(value);
     } else if (strcmp(key, "top_panel_widescreen_position") == 0) {

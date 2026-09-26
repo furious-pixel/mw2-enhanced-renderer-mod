@@ -343,7 +343,21 @@ owners named below are historical unless repeated in the current-native section.
 
 ### Native damage-wireframe scaling
 
-The native config parser normalizes HUD damage_wireframe_scaling to zero for auto or an exact 1, 2, or 3 source-pixel multiple. Missing or invalid values use auto. HUD drawing applies the choice through the existing damage-sprite transform: auto retains integer panel fitting; fixed scales bypass fitting while retaining centering, HTAL alignment, and damage-region clipping. This adds no resource ownership, extraction, uploads, or draw calls.
+HUD damage_wireframe_scaling accepts auto or a source-pixel multiple from 0.25x
+to 8x. Missing or invalid values use auto. The default-on damage_wireframe_crt
+option draws the existing captured sprite and colored segments at integer 1x
+into a transparent RGBA8 target. Its bounds cover the sprite and every segment
+placement plus filter padding, independent of output resolution and scene SSAA.
+HUD GL state owns this reusable color-only target, shader, and vertex array;
+context teardown releases them. Damage-state changes do not resize the target.
+
+The custom damage_crt shaders reconstruct the premultiplied image with nonlinear
+filtering, horizontal softness, faint glow, and scale-dependent scanlines. Auto
+uses fractional fitting; fixed scales retain centering and HTAL alignment while
+bypassing fitting. Disabling the option restores direct sprite drawing and
+integer auto fitting. Both modes share capture, decoding, palette input, and
+segment commands. The enabled mode adds a small target clear and one filtered
+quad per visible damage display, without another scene walk or extraction.
 
 ### Native build and font ownership
 
