@@ -13,6 +13,7 @@ enum {
     ADDR_TEXTURE_DESCRIPTOR_TABLE = 0x0013DFE0,
     ADDR_TEXTURE_CELL_TABLE = 0x0013FBE0,
     ADDR_TEXTURE_REMAP_TABLE_PTR = 0x000A6DCC,
+    ADDR_TEXTURE_REMAP_RESOURCE_ID = 0x000A6DBC,
     TEXTURE_REMAP_TABLE_COUNT = 16,
     TEXTURE_REMAP_TABLE_SIZE = 256,
     TEXTURE_DESCRIPTOR_STRIDE = 14,
@@ -42,6 +43,7 @@ struct CelCacheEntry {
     int enhanced_h;
     int enhancement_role_id;
     uint32_t hist[256];
+    uint64_t source_indices[4] = {};
     uint32_t n_opaque;
     uint64_t remap_revision = 0;
     uint64_t classification_revision = 0;
@@ -52,7 +54,8 @@ struct CelCacheEntry {
 static std::vector<CelCacheEntry> g_cels;
 static uint8_t g_remap[16][256];
 static float g_palette[256 * 3];
-static bool g_identity_indices[256];
+static uint64_t g_fixed_indices[4];
+static int32_t g_selected_luma = -1;
 static uint64_t g_remap_revision;
 static uint64_t g_classification_revision;
 static int g_remap_ready;
@@ -82,6 +85,7 @@ void mw2er_texture_free_cache(void)
 {
     g_cels.clear();
     g_remap_ready = 0;
+    g_selected_luma = -1;
 }
 
 static CelCacheEntry *cel_find(int resource_id)
@@ -396,44 +400,72 @@ static void classify_remap(
 
 void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb)
 {
-    const uint32_t ptr = mem.u32_rel(ADDR_TEXTURE_REMAP_TABLE_PTR);
-    const uint8_t *raw = ptr ? mem.view(ptr, sizeof(g_remap)) : nullptr;
-    if (raw == nullptr) {
-        g_remap_ready = 0;
+    g_remap_ready = 0;
+    int32_t selected = -1;
+    uint32_t ptr = 0;
+    if (!mem.read_rel(ADDR_TEXTURE_REMAP_RESOURCE_ID, &selected, sizeof(selected)) ||
+        !mem.read_rel(ADDR_TEXTURE_REMAP_TABLE_PTR, &ptr, sizeof(ptr))) {
         mw2er_startup_texture_context(false, g_remap_revision, g_classification_revision);
         return;
     }
-    const bool remap_changed = !g_remap_ready ||
-        memcmp(g_remap, raw, sizeof(g_remap)) != 0;
-    const bool palette_changed = !g_remap_ready ||
+    // The provider qualifies the archive hash and owns immutable bodies across
+    // this resource generation. LTBL selection need not have acquired a guest
+    // pointer yet. Never replace a conflicting guest mapping with stock bytes.
+    const Mw2erResourceAsset *asset = selected >= 0
+        ? mw2er_resource_find(MW2ER_RESOURCE_LUMA, (uint32_t)selected) : nullptr;
+    const uint8_t *guest = ptr ? mem.view(ptr, sizeof(g_remap)) : nullptr;
+    if (!asset || asset->bytes.size() != sizeof(g_remap) ||
+        (ptr && (!guest || memcmp(guest, asset->bytes.data(), sizeof(g_remap)) != 0))) {
+        mw2er_startup_texture_context(false, g_remap_revision, g_classification_revision);
+        return;
+    }
+    const uint8_t *raw = asset->bytes.data();
+    const bool remap_changed = g_selected_luma < 0 ||
+        (selected != g_selected_luma && memcmp(g_remap, raw, sizeof(g_remap)) != 0);
+    const bool palette_changed = g_selected_luma < 0 ||
         memcmp(g_palette, palette_rgb, sizeof(g_palette)) != 0;
     if (remap_changed) {
         memcpy(g_remap, raw, sizeof(g_remap));
         ++g_remap_revision;
+        memset(g_fixed_indices, 0, sizeof(g_fixed_indices));
         for (int i = 0; i < 256; ++i) {
-            g_identity_indices[i] = true;
+            bool fixed = true;
             for (int shade = 0; shade < 16; ++shade) {
                 if (g_remap[shade][i] != i) {
-                    g_identity_indices[i] = false;
+                    fixed = false;
                     break;
                 }
             }
+            if (fixed) g_fixed_indices[i >> 6] |= uint64_t(1) << (i & 63);
         }
     }
+    g_selected_luma = selected;
     if (palette_changed)
         memcpy(g_palette, palette_rgb, sizeof(g_palette));
     if (remap_changed || palette_changed)
         ++g_classification_revision;
-    g_remap_ready = 1;
-    mw2er_startup_texture_context(true, g_remap_revision, g_classification_revision);
+    // The compatibility shaders cannot make a transparent source texel opaque.
+    // Such mappings require native remap-before-transparency rendering.
+    g_remap_ready = (g_fixed_indices[3] & (uint64_t(1) << 63)) != 0;
+    mw2er_startup_texture_context(g_remap_ready != 0,
+        g_remap_revision, g_classification_revision);
+}
+
+bool mw2er_texture_remap_ready(void)
+{
+    return g_remap_ready != 0;
 }
 
 static const RemapClassification &cached_remap(CelCacheEntry &cel)
 {
+    // The content proof covers the qualified per-profile stock skip catalog
+    // without assuming that a numeric CEL id proves its current pixel content.
+    // It remains valid across palette fades and mirrored-atlas construction,
+    // which only repeats source indices.
     if (cel.remap_revision != g_remap_revision) {
         cel.proven_identity = true;
-        for (int i = 0; i < 255; ++i) {
-            if (cel.hist[i] && !g_identity_indices[i]) {
+        for (int word = 0; word < 4; ++word) {
+            if (cel.source_indices[word] & ~g_fixed_indices[word]) {
                 cel.proven_identity = false;
                 break;
             }
@@ -508,7 +540,8 @@ static CelCacheEntry *load_cel(
         }
         asset = mw2er_resource_find(MW2ER_RESOURCE_CEL, (uint32_t)resource_id);
     }
-    if (asset == NULL) {
+    if (asset == NULL || asset->width == 0 || asset->height == 0 ||
+        asset->bytes.size() != (size_t)asset->width * asset->height) {
         return NULL;
     }
     const Mw2erStartupScope trace(MW2ER_STARTUP_HIST);
@@ -525,6 +558,7 @@ static CelCacheEntry *load_cel(
     pixel_count = (int)asset->bytes.size();
     for (int i = 0; i < pixel_count; ++i) {
         uint8_t p = asset->bytes[(size_t)i];
+        ent->source_indices[p >> 6] |= uint64_t(1) << (p & 63);
         if (p != 0xFF) {
             ent->hist[p] += 1;
             ent->n_opaque += 1;
@@ -747,7 +781,12 @@ int mw2er_texture_resolve(
     out.animated_effect = animation_interval != 0 || selector != 0 || n_subs > 1;
     out.enhancement_role_id = 0;
     out.enhanced_uv_scale = 1.0f;
-    if (desc_idx >= 0x100 && g_remap_ready) {
+    if (desc_idx >= 0x100 && !g_remap_ready) {
+        // Unresolved is not even a temporary compatibility identity result.
+        out.valid = 0;
+        return 0;
+    }
+    if (desc_idx >= 0x100) {
         const RemapClassification &remap = cached_remap(*cel);
         out.remap_kind_id = remap.remap_kind_id;
         memcpy(out.dark_ratio, remap.dark_ratio, sizeof(out.dark_ratio));

@@ -115,7 +115,8 @@ static void load_prj(PrjResources &prj)
             prj.pending.store((uint32_t)keys.size() + 1, std::memory_order_relaxed);
             for (const auto &key : keys) {
                 if (prj.cancel.load(std::memory_order_relaxed)) return;
-                if (key.type == MW2ER_RESOURCE_CEL || key.type == MW2ER_RESOURCE_POLY) {
+                if (key.type == MW2ER_RESOURCE_CEL || key.type == MW2ER_RESOURCE_POLY ||
+                    key.type == MW2ER_RESOURCE_LUMA) {
                     Mw2erResourceAsset asset = {};
                     prj.result = prj.archive.lookup(key.type, key.resource_id, asset);
                     if (prj.result.status != Mw2erPrjStatus::Found) break;

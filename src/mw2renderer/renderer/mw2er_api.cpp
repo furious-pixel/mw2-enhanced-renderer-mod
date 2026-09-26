@@ -5,6 +5,7 @@
 #include "presentation.h"
 #include "scene_extract.h"
 #include "scene_draw.h"
+#include "texture.h"
 #include "hud.h"
 #include "menu.h"
 #include "font.h"
@@ -481,10 +482,12 @@ static int32_t publish_frame(Mw2erPublishResult *result)
         return publish_result;
     }
     g_state.publication_id += 1;
-    mw2er_presentation_published(
-        mw2er_resources_pending(g_state.resource_generation));
+    const bool materials_ready = mw2er_texture_remap_ready();
+    if (materials_ready)
+        mw2er_presentation_published(
+            mw2er_resources_pending(g_state.resource_generation));
     if (result != NULL) {
-        result->coverage = MW2ER_COVERAGE_SCENE;
+        result->coverage = materials_ready ? MW2ER_COVERAGE_SCENE : 0;
         result->completed_layers = MW2ER_LAYER_SCENE | MW2ER_LAYER_OVERLAY;
         result->reserved = 0;
         result->publication_id = g_state.publication_id;
@@ -520,7 +523,7 @@ static int32_t api_composite_frame(
     const Mw2erPresentation presentation = mw2er_presentation_get(
         present->time_seconds,
         present->viewport.view_mode,
-        g_state.publication_id != 0,
+        g_state.publication_id != 0 && mw2er_texture_remap_ready(),
         mw2er_resources_pending(g_state.resource_generation));
     const int32_t composite_result = mw2er_gl_composite(
         &present->viewport, &presentation);
@@ -617,7 +620,7 @@ static int32_t api_composite(const Mw2erViewport *vp)
     const Mw2erPresentation presentation = mw2er_presentation_get(
         g_state.frame.time_seconds,
         vp->view_mode,
-        g_state.publication_id != 0,
+        g_state.publication_id != 0 && mw2er_texture_remap_ready(),
         mw2er_resources_pending(g_state.resource_generation));
     return mw2er_gl_composite(vp, &presentation);
 }

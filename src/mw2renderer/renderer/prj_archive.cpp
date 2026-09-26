@@ -40,6 +40,7 @@ uint32_t archive_tag(uint32_t type)
 {
     if (type == MW2ER_RESOURCE_CEL) return 0x004c4543;
     if (type == MW2ER_RESOURCE_POLY) return 0x594c4f50;
+    if (type == MW2ER_RESOURCE_LUMA) return 0x414d554c;
     return 0;
 }
 
@@ -47,6 +48,7 @@ uint32_t resource_type(uint32_t tag)
 {
     if (tag == archive_tag(MW2ER_RESOURCE_CEL)) return MW2ER_RESOURCE_CEL;
     if (tag == archive_tag(MW2ER_RESOURCE_POLY)) return MW2ER_RESOURCE_POLY;
+    if (tag == archive_tag(MW2ER_RESOURCE_LUMA)) return MW2ER_RESOURCE_LUMA;
     return 0;
 }
 
@@ -79,6 +81,11 @@ Mw2erPrjResult validate_body(Mw2erResourceAsset &asset,
     const uint32_t type = asset.type;
     const uint32_t id = asset.resource_id;
     const std::vector<uint8_t> &body = asset.bytes;
+    if (type == MW2ER_RESOURCE_LUMA) {
+        if (body.size() != 16 * 256)
+            return result(Mw2erPrjStatus::Corrupt, "LUMA", "invalid table length", type, id);
+        return result(Mw2erPrjStatus::Found, "LUMA", "validated shade tables", type, id);
+    }
     if (type == MW2ER_RESOURCE_CEL) {
         if (body.size() < 4)
             return result(Mw2erPrjStatus::Corrupt, "CEL", "short dimensions", type, id);

@@ -7,6 +7,8 @@
 #include <vector>
 
 static constexpr char kArchiveSourceExecutable[] = "MECH2.EXE";
+// Renderer-owned archive type; never passed to the host CEL/POLY service ABI.
+static constexpr uint32_t MW2ER_RESOURCE_LUMA = 3;
 
 struct Mw2erResourceAsset {
     uint32_t type;
