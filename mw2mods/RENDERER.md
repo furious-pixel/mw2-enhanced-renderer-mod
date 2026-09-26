@@ -430,3 +430,47 @@ release pin; final public packages are rebuilt from the exported revisions.
 - Bracketed-target acquisition is owned by `hud.cpp` (selection/HUD lifecycle and timing) and `targeting.cpp` (output-space square geometry). It reuses the radar line batch and live palette, homes toward the current projected target, defers offscreen starts, restarts interrupted acquisition, and presents one aligned square before brackets. NAV and satellite indicators are excluded. HUD duration zero disables acquisition; turns are rounded to quarter turns. The shipped profile uses 0.35 seconds and 0.25 turn. Only acquisition adds a four-segment upload/draw; ordinary frames retain lightweight lifecycle tracking.
 
 - Acquisition trails in `targeting.cpp` sweep the same analytic live-target trajectory using the existing HUD triangle buffer and premultiplied shader. `[HUD] targeting_animation_trail_ms` controls a 0..250 ms lookback (15 ms fallback, 30 ms shipped); zero disables ribbons, while animation duration zero bypasses both square and trail. Lookback grows from acquisition start and fades before the aligned final frame. Angular subdivision preserves curvature independently of frame rate. Edge crossings are split to avoid tessellation-induced double blending; genuine overlaps accumulate bounded source-over opacity in RGB and alpha, including beneath the antialiased square. Acquisition-only geometry requires no frame history, additional scene extraction, GPU resources or post-processing. Batch count scales with angular sweep; the shipped profile fits one trail batch. GPU cost is unmeasured.
+
+### Native palette fades and texture-remap classification
+
+`scene_extract.cpp` captures one normalized floating-point, pre-brightness
+palette per game frame. Auxiliary extraction reuses that primary snapshot.
+Ordinary whole-palette fades reconstruct the signed DDA residual and predict
+one step (`C + R/T + D/T`), since HUD-entry capture precedes native frame
+submission. Coherence checks cover the controls, pointers, progress and array
+bounds; invalid or inactive state falls back to the live palette. No independent
+clock or temporal low-pass is retained. Mission/loading and relocation boundaries
+reset classification, and temporary-effect detection stays latched through the
+return leg. Observed loading distinguishes mission fade-in from an ambiguous
+cold-attached black-flash return.
+
+Scene and indexed-HUD palette textures use RGB32F; CPU HUD colors and texture
+classification consume the same floating-point palette. Monitor brightness is
+applied once by the existing continuous compositor lookup. Existing framebuffer
+and output formats still determine final display precision.
+
+The qualified archive provider also owns complete 4096-byte LUMA bodies.
+`texture.cpp` resolves the current LTBL selection independently of native lazy
+acquisition, compares any guest body against that selected resource, and keeps
+conflicts or unavailable mappings unresolved. Scene coverage and presentation
+require mapping readiness. Unsupported transparency remaps retain native output.
+CEL source-index masks include index 255; four mask comparisons against the
+LUMA fixed-index mask prove identity independently of palette RGB. Proofs change
+with resource/mapping generations, not fades. Mirrored atlases preserve them
+because they only repeat source indices. Other CELs retain palette-dependent
+compatibility classification and refresh GPU material fields independently of
+pixel-storage reuse.
+
+The enhanced compatibility classifier checks shade-0 and shade-8 colors against
+shade-15 for every used source index before permitting darkening or split-fog.
+A response that brightens any channel uses ordinary fog blending. This prevents
+an authored dark camo region from retaining contrast through brighter fog merely
+because the endpoint is dim in absolute RGB or the brightest texel darkens.
+This is an approximation policy, not a full per-index native response curve.
+
+Normal capture adds bounded palette-state work and a shared LUMA consistency
+check; fades can trigger more nonidentity classifications. The brightening guard
+adds one midpoint palette lookup per used index during those classifications.
+Identity CELs bypass RGB fitting. Stock LUMA preload adds 12 KiB; no extra scene
+walk or draw pass is introduced. Performance is unmeasured; broader response
+curve work and classification optimization remain deferred.

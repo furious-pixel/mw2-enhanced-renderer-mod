@@ -232,6 +232,7 @@ static void classify_remap(
     int kind = 0;
     float term_r, term_g, term_b;
     float chroma;
+    bool brightens_toward_fog = false;
 
     out->remap_kind_id = 0;
     out->dark_ratio[0] = out->dark_ratio[1] = out->dark_ratio[2] = 0.0f;
@@ -273,6 +274,14 @@ static void classify_remap(
         float lum;
         pal_rgb(pal, s0, &r, &g, &b);
         lum = rgb_lum(r, g, b);
+        float full_r, full_g, full_b, mid_r, mid_g, mid_b;
+        pal_rgb(pal, s15, &full_r, &full_g, &full_b);
+        pal_rgb(pal, g_remap[8][idx], &mid_r, &mid_g, &mid_b);
+        // A dim fog endpoint can still brighten an authored dark stripe.
+        // Check every used color: fitting only the brightest texel can select
+        // multiplicative darkening (or a darkening split) for the whole camo.
+        brightens_toward_fog |= r > full_r || g > full_g || b > full_b ||
+            mid_r > full_r || mid_g > full_g || mid_b > full_b;
         for (c = 0; c < n_s0; ++c) {
             if (s0_colors[c][0] == r && s0_colors[c][1] == g && s0_colors[c][2] == b) {
                 found = 1;
@@ -287,7 +296,7 @@ static void classify_remap(
         }
         s0_lums[i] = lum;
         s0_counts[i] = (int)hist[idx];
-        s15_lums[i] = pal_lum(pal, s15);
+        s15_lums[i] = rgb_lum(full_r, full_g, full_b);
         if (lum < s0_min) {
             s0_min = lum;
         }
@@ -373,7 +382,9 @@ static void classify_remap(
         }
         chroma -= mn;
     }
-    if (n_s0 >= 2 && max_lum <= 35.0f) {
+    if (brightens_toward_fog) {
+        kind = 3;
+    } else if (n_s0 >= 2 && max_lum <= 35.0f) {
         kind = 2;
     } else if (n_s0 == 1 && max_lum <= 15.0f && chroma <= 8) {
         kind = 1;
@@ -391,7 +402,7 @@ static void classify_remap(
     out->fog_terminal[1] = (float)term_g / 255.0f;
     out->fog_terminal[2] = (float)term_b / 255.0f;
     pal_ratio(pal, g_remap[8][bright_idx], bright_idx, out->s8_ratio);
-    if (kind == 3) {
+    if (kind == 3 && !brightens_toward_fog) {
         kind = select_fog_category(
             bright_idx, pal, g_remap, term_r, term_g, term_b, out->s8_ratio);
     }
