@@ -1,16 +1,11 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 in vec3 in_pos;
 in vec3 in_other_pos;
 in float in_billboard_flags;
 
-uniform mat4 u_projection;
-uniform vec2 u_viewport_size;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform vec3 u_camera_forward;
-uniform int u_satellite_billboard;
 
 out vec2 v_uv;
 out vec3 v_world_pos;

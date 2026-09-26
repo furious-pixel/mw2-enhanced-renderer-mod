@@ -1,14 +1,11 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 in vec3 in_pos;
 in vec2 in_uv;
 
-uniform mat4 u_projection;
 uniform vec2 u_uv_scale;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform vec3 u_camera_forward;
 
 out vec2 v_uv;
 out vec3 v_world_pos;

@@ -45,6 +45,7 @@ set(_runtime_assets
     "mw2mods/shaders/rotor_outline.frag"
     "mw2mods/shaders/rotor_outline.vert"
     "mw2mods/shaders/scene_lighting.glsl"
+    "mw2mods/shaders/scene_uniforms.glsl"
     "mw2mods/shaders/sky.frag"
     "mw2mods/shaders/sky.vert"
     "mw2mods/shaders/texmap.frag"

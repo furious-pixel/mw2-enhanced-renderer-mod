@@ -1,12 +1,10 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 in vec3 in_pos;
 in float in_palette_mix;
 
-uniform mat4 u_projection;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform vec3 u_camera_forward;
 uniform float u_y_scale;
 
 out float v_palette_mix;

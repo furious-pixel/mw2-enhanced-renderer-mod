@@ -1,14 +1,13 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 uniform sampler2D u_palette;
 uniform sampler2D u_indexed_texture;
 uniform int u_remap_kind;
 uniform vec3 u_dark_ratio;
 uniform vec3 u_fog_terminal_color;
 uniform vec3 u_s8_ratio;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_forward;
-uniform float u_near_clip_plane;
 
 in vec2 v_uv;
 in float v_light_t;

@@ -1,4 +1,5 @@
 #include "gl_program.h"
+#include "scene_uniforms.h"
 #include "mw2er_internal.h"
 
 #include <stdio.h>
@@ -106,14 +107,17 @@ static std::string apply_shader_tokens(std::string src, const char *path)
 {
     std::string dir = dirname_of(path);
     std::string lighting;
+    std::string uniforms;
     std::string common;
     if (!dir.empty()) {
+        uniforms = read_file_optional((dir + "/scene_uniforms.glsl").c_str());
         lighting = read_file_optional((dir + "/scene_lighting.glsl").c_str());
         common = read_file_optional((dir + "/indexed_texmap_common.glsl").c_str());
         if (!common.empty()) {
             replace_all(common, "@SCENE_LIGHTING_FUNCTIONS@", lighting);
         }
     }
+    replace_all(src, "@SCENE_UNIFORMS@", uniforms);
     replace_all(src, "@SCENE_LIGHTING_FUNCTIONS@", lighting);
     replace_all(src, "@INDEXED_TEXMAP_FUNCTIONS@", common);
     replace_all(src, "@MODE4_EMISSIVE_C_IN_THRESHOLD@", "48.0");
@@ -163,6 +167,23 @@ bool GlProgram::load(const char *vert_path, const char *frag_path)
         glDeleteProgram(id);
         id = 0;
         return false;
+    }
+    // Each program uses the same fixed block ABI, including partially used
+    // blocks. Reject stale shader assets before the first draw.
+    const char *blocks[] = {"SceneFrame", "SceneView", "SceneDraw"};
+    const GLint sizes[] = {sizeof(SceneFrameUniforms), sizeof(SceneViewUniforms),
+                           sizeof(SceneDrawUniforms)};
+    for (GLuint binding = 0; binding < 3; ++binding) {
+        GLuint index = glGetUniformBlockIndex(id, blocks[binding]);
+        if (index == GL_INVALID_INDEX) continue;
+        GLint bytes = 0;
+        glGetActiveUniformBlockiv(id, index, GL_UNIFORM_BLOCK_DATA_SIZE, &bytes);
+        if (bytes != sizes[binding]) {
+            mw2er_set_error("scene uniform block size mismatch");
+            destroy();
+            return false;
+        }
+        glUniformBlockBinding(id, index, binding);
     }
     cache_uniforms(*this);
     return true;

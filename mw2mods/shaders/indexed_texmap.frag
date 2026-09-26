@@ -1,5 +1,7 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 uniform sampler2D u_palette;
 uniform sampler2D u_indexed_texture;
 

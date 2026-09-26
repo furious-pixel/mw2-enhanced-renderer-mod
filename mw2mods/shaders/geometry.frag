@@ -1,9 +1,8 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 uniform sampler2D u_palette;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_forward;
-uniform float u_near_clip_plane;
 in float v_palette_index;
 in float v_wireframe_fade;
 in vec3 v_world_pos;
