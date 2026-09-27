@@ -141,6 +141,7 @@ function choiceIndex(definition, value) {
 }
 
 function formatValue(definition, value) {
+  if (definition.value_type === "string" && !definition.choices) return String(value);
   if (definition.choices) {
     const choice = definition.choices.find((entry) => entry.value === value);
     return choice ? choice.label : String(value);
@@ -569,6 +570,9 @@ function renderSetting(section, definition) {
 
 function renderControl(definition, value) {
   const common = `data-key="${definition.key}"`;
+  if (definition.control === "text") {
+    return `<input class="number-control" type="text" ${common} value="${escapeHtml(value)}" spellcheck="false">`;
+  }
   if (definition.control === "boolean") {
     return `<div class="segmented-control" data-choice-key="${definition.key}">
       <button type="button" data-choice-value="true" class="${value ? "active" : ""}">true</button>

@@ -250,9 +250,17 @@ static void apply_hud_key(const char *key, const char *value)
         g_cfg.hud_target_marker_scaling = (float)atof(value);
     } else if (strcmp(key, "damage_wireframe_scaling") == 0) {
         char *end = nullptr;
-        const float scale = strtof(value, &end);
-        g_cfg.hud_damage_wireframe_scale = scale >= 0.25f && scale <= 8.0f &&
-            (*end == '\0' || _stricmp(end, "x") == 0) ? scale : 0;
+        const double scale = strtod(value, &end);
+        // Accept decimal numbers with an optional x suffix, including the old
+        // 1x/2x/3x choices. Keep the grammar shared with Python normalization.
+        bool decimal = end != value;
+        for (const char *p = value; p < end; ++p)
+            decimal &= strchr("0123456789.+-eE \t", *p) != nullptr;
+        while (*end == ' ' || *end == '\t') ++end;
+        if (*end == 'x' || *end == 'X') ++end;
+        while (*end == ' ' || *end == '\t') ++end;
+        g_cfg.hud_damage_wireframe_scale = decimal && scale >= 0.25 && scale <= 8.0 &&
+            *end == '\0' ? (float)scale : 0;
     } else if (strcmp(key, "damage_wireframe_crt") == 0) {
         g_cfg.hud_damage_wireframe_crt = parse_bool(value, g_cfg.hud_damage_wireframe_crt);
     } else if (strcmp(key, "middle_panel_vertical_position") == 0) {

@@ -1,6 +1,7 @@
 import configparser
 import math
 import os
+import re
 from types import SimpleNamespace
 
 
@@ -362,12 +363,15 @@ def normalize_config_values(values):
     values = dict(values)
     if "damage_wireframe_scaling" in values:
         raw = str(values["damage_wireframe_scaling"]).strip().lower()
-        try:
-            scale = float(raw.removesuffix("x"))
-        except ValueError:
-            scale = 0.0
+        if len(raw) >= 2 and raw[0] == raw[-1] == '"':
+            raw = raw[1:-1].strip()
+        decimal = re.fullmatch(
+            r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?[ \t]*x?",
+            raw,
+        )
+        scale = float(raw.removesuffix("x")) if decimal else 0.0
         values["damage_wireframe_scaling"] = (
-            f"{scale:g}x" if 0.25 <= scale <= 8.0 else "auto"
+            f"{scale:.9g}x" if 0.25 <= scale <= 8.0 else "auto"
         )
     if "targeting_animation_turns" in values:
         turns = max(0.0, min(10.0, float(values["targeting_animation_turns"])))
