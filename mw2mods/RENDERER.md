@@ -352,7 +352,10 @@ HUD GL state owns this reusable color-only target, shader, and vertex array;
 context teardown releases them. Damage-state changes do not resize the target.
 
 The custom damage_crt shaders reconstruct the premultiplied image with nonlinear
-filtering, horizontal softness, faint glow, and scale-dependent scanlines. Auto
+filtering, horizontal softness, an emissive halo, and scale-dependent scanlines.
+Scanline contrast is energy-normalized to retain brightness; black disabled
+segments remain opaque and do not emit light. The wider halo adds eight texture
+samples per fragment of the small damage quad, without another target or pass. Auto
 uses fractional fitting; fixed scales retain centering and HTAL alignment while
 bypassing fitting. Disabling the option restores direct sprite drawing and
 integer auto fitting. Both modes share capture, decoding, palette input, and

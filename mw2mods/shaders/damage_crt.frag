@@ -24,11 +24,29 @@ void main() {
     glow += texture(u_source, v_uv - vec2(1.6, 0) * texel) * 0.07;
     glow += texture(u_source, v_uv + vec2(0, 0.7) * texel) * 0.11;
     glow += texture(u_source, v_uv - vec2(0, 0.7) * texel) * 0.11;
+    // A wider low-opacity phosphor halo, without another render target.
+    vec4 halo = glow * 0.40;
+    halo += texture(u_source, v_uv + vec2(2.2, 0) * texel) * 0.10;
+    halo += texture(u_source, v_uv - vec2(2.2, 0) * texel) * 0.10;
+    halo += texture(u_source, v_uv + vec2(0, 1.4) * texel) * 0.08;
+    halo += texture(u_source, v_uv - vec2(0, 1.4) * texel) * 0.08;
+    halo += texture(u_source, v_uv + vec2(1.4, 0.9) * texel) * 0.06;
+    halo += texture(u_source, v_uv + vec2(-1.4, 0.9) * texel) * 0.06;
+    halo += texture(u_source, v_uv + vec2(1.4, -0.9) * texel) * 0.06;
+    halo += texture(u_source, v_uv - vec2(1.4, 0.9) * texel) * 0.06;
     // Fade scanlines out when the output cannot resolve the source rows.
-    float scan = 1.0 - 0.10 * smoothstep(1.25, 2.5, u_scale) *
+    float scan_strength = 0.44 * smoothstep(0.90, 2.10, u_scale);
+    float scan = 1.0 - scan_strength *
         (0.5 - 0.5 * cos(6.2831853 * pixel.y));
-    vec4 beam = core * 0.94 + glow * 0.18;
+    // Preserve average phosphor energy as scanline contrast increases.
+    scan /= 1.0 - 0.5 * scan_strength;
+    vec4 beam = core * 0.98 + glow * 0.25 + halo * 0.50;
+    beam.a = core.a * 0.98 + glow.a * 0.20 + halo.a * 0.12;
     beam.a = min(beam.a, 1.0);
-    beam.rgb = min(beam.rgb * scan, vec3(beam.a));
+    // A small emissive contribution restores energy lost through filtering.
+    // Stronger phosphor treatments also lift saturated colors slightly.
+    float peak = max(beam.r, max(beam.g, beam.b));
+    beam.rgb = mix(beam.rgb, vec3(peak), 0.07);
+    beam.rgb = min(beam.rgb * 1.22 * scan, vec3(1.0));
     frag_color = beam;
 }
