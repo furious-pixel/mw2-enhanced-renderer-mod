@@ -10,6 +10,8 @@ set(_runtime_assets
     "mw2mods/fonts/Squarish Sans CT Regular.ttf"
     "mw2mods/shaders/blit.frag"
     "mw2mods/shaders/blit.vert"
+    "mw2mods/shaders/damage_crt.frag"
+    "mw2mods/shaders/damage_crt.vert"
     "mw2mods/shaders/camera_view_blit.frag"
     "mw2mods/shaders/camera_view_blit.vert"
     "mw2mods/shaders/camo_texmap.frag"

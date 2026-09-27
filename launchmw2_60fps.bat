@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-".\bin\dosbox-x.exe" -console -python -moddir mw2mods -log-fileio -conf ".\dosbox-mw2.conf" ^
+".\bin\dosbox-x.exe" -python -moddir mw2mods -log-fileio -conf ".\dosbox-mw2.conf" ^
   -set "sdl fullscreen=true" ^
   -set "sdl fullresolution=desktop" ^
   -set "sdl showmenu=false" ^

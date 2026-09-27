@@ -3,13 +3,14 @@ name: Build standalone native renderer
 on:
   workflow_dispatch:
   pull_request:
+    branches: [main]
     paths:
       - "src/mw2renderer/**"
       - "mw2mods/**"
       - "tools/run_clean_env.ps1"
       - ".github/workflows/native-renderer.yml"
   push:
-    branches: [cpp-renderer, cpp-renderer-integration]
+    branches: [main]
 
 permissions:
   contents: read
@@ -26,6 +27,7 @@ jobs:
         shell: pwsh
         run: |
           ./tools/run_clean_env.ps1 -FilePath cmake -CommandLine '--preset windows-msvc -S src/mw2renderer'
+          if ($LASTEXITCODE) { throw 'Renderer configuration failed' }
       - name: Build renderer
         shell: pwsh
         run: |

@@ -27,6 +27,7 @@ MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py',
 REMOVED_MODULES = ('numba', 'llvmlite', 'numpy', 'moderngl', 'glcontext', 'freetype')
 REQUIRED = ('bin/dosbox-x.exe', 'bin/COPYING', 'bin/glshaders/NOTICE',
             'mw2mods/mw2renderer.dll', 'mw2mods/mod.conf',
+            'mw2mods/shaders/damage_crt.frag', 'mw2mods/shaders/damage_crt.vert',
             'licenses/freetype/GPLv2.TXT', 'licenses/khronos-opengl.txt',
             'licenses/khronos-platform.txt', 'licenses/stb.txt',
             'licenses/proxy_tools.txt', 'licenses/webview2/LICENSE.txt',
