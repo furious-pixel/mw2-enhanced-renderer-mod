@@ -1,4 +1,4 @@
-"""Refresh the static download button from published GitHub release metadata."""
+"""Refresh matching binary and source links from published release metadata."""
 import html
 import json
 from pathlib import Path
@@ -15,8 +15,12 @@ assets = [a for a in release['assets'] if re.search(r'windows[-_]x64\.zip$', a['
 if len(assets) != 1:
     raise SystemExit('Newest release must have exactly one Windows x64 ZIP; review asset naming.')
 asset = assets[0]
+sources = [a for a in release['assets'] if re.search(r'[-_]source\.zip$', a['name'], re.I)]
+if len(sources) != 1:
+    raise SystemExit('Newest release must have exactly one corresponding-source ZIP.')
+source = sources[0]
 expected = 'https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/'
-if not asset['browser_download_url'].startswith(expected):
+if not all(a['browser_download_url'].startswith(expected) for a in (asset, source)):
     raise SystemExit('Unexpected download URL')
 label = f"Download {release['tag_name']} · Windows x64 ZIP"
 if release['prerelease']:
@@ -27,5 +31,10 @@ text, count = re.subn(r'<a id="release-download"[^>]*>.*?</a>', lambda _: button
                       page.read_text(encoding='utf-8'))
 if count != 1:
     raise SystemExit('Expected exactly one download button')
+source_label = f"Corresponding source {release['tag_name']} (ZIP)"
+source_link = f'<a id="source-download" href="{html.escape(source["browser_download_url"], quote=True)}">{html.escape(source_label)}</a>'
+text, count = re.subn(r'<a id="source-download"[^>]*>.*?</a>', lambda _: source_link, text)
+if count != 1:
+    raise SystemExit('Expected exactly one source download link')
 page.write_text(text, encoding='utf-8', newline='\n')
 print(label)
