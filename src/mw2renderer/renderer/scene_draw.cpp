@@ -143,6 +143,7 @@ struct IndexedGeoPass {
     GLint u_wireframe_fade_end;
     GLint u_palette;
     GLint u_primitive_palette;
+    GLint u_constant_palette;
     GLint u_near_clip_plane;
 };
 
@@ -834,6 +835,7 @@ static bool load_indexed_geo_pass(IndexedGeoPass &p)
     p.u_wireframe_fade_end = p.prog.loc("u_wireframe_fade_end");
     p.u_palette = p.prog.loc("u_palette");
     p.u_primitive_palette = p.prog.loc("u_primitive_palette");
+    p.u_constant_palette = p.prog.loc("u_constant_palette");
     p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
@@ -1372,11 +1374,17 @@ static void sync_part_gpu(PartGpu &gpu, const Mw2erGeomPartition &gp)
                 &gpu.wire.line_bytes,
                 gp.wire_line_indices.ptr(),
                 gp.wire_line_indices.count() * sizeof(uint32_t));
-            upload_prim_tex(
-                &gpu.wire.line_prim,
-                &gpu.wire.prim_w,
-                gp.wire_line_palette.ptr(),
-                (int)gp.wire_line_palette.floats());
+            if (gp.wire_palette_index < 0) {
+                upload_prim_tex(
+                    &gpu.wire.line_prim,
+                    &gpu.wire.prim_w,
+                    gp.wire_line_palette.ptr(),
+                    (int)gp.wire_line_palette.floats());
+            } else {
+                if (gpu.wire.line_prim) glDeleteTextures(1, &gpu.wire.line_prim);
+                gpu.wire.line_prim = 0;
+                gpu.wire.prim_w = 0;
+            }
         } else {
             wire_destroy_line(gpu.wire);
         }
@@ -1819,13 +1827,15 @@ static void prepare_geo(float clip_near)
     }
 }
 
-static void prepare_indexed_geo(float clip_near)
+static void prepare_indexed_geo(float clip_near, int palette_index = -1)
 {
     IndexedGeoPass &p = g_gpu.idx_geo;
     if (prepare_pass(
             p.prog, PASS_INDEXED_GEO, p.u_near_clip_plane, clip_near)) {
         set_indexed_geo_camera(p, *g_frame.cam, g_frame.projection);
     }
+    // Set on every draw, including successive uses of the same shader.
+    set1f(p.u_constant_palette, (float)palette_index);
 }
 
 static void prepare_billboard(float clip_near)
@@ -2387,9 +2397,9 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
                 glDisable(GL_CULL_FACE);
                 cull_disabled = 1;
             }
-            prepare_indexed_geo(clip_near);
+            prepare_indexed_geo(clip_near, gp.wire_palette_index);
             glBindVertexArray(gpu.wire.vao_line);
-            bind_prim_unit(gpu.wire.line_prim);
+            if (gp.wire_palette_index < 0) bind_prim_unit(gpu.wire.line_prim);
             glDrawElements(
                 GL_LINES,
                 (GLsizei)gp.wire_line_indices.count(),

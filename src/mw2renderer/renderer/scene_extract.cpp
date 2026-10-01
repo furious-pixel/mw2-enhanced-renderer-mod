@@ -43,6 +43,7 @@ enum {
     ADDR_GRADIENT_HEIGHT = 0x000A7154,
     ADDR_FOG_DISTANCE = 0x000A7130,
     ADDR_IMAGING_ACTIVE = 0x000A7120,
+    ADDR_IMAGING_SUBMODE = 0x000A7124,
     ADDR_CAMERA_FAR_DEPTH = 0x0015FF80,
     ADDR_COMPONENT_LIGHTING_MODE = 0x000A6F88,
     ADDR_SPECIAL_CAMERA_LATCH = 0x000A62B4,
@@ -428,6 +429,7 @@ static uint64_t static_policy_key(const Mw2erSceneExtract &ex)
     k |= (uint64_t)(ex.camera.satellite_view ? 2 : 0);
     k |= (uint64_t)(ex.camera.preserve_imaging_effects ? 4 : 0);
     k |= (uint64_t)(mw2er_config().reduce_terrain_gaps ? 8 : 0);
+    k |= (uint64_t)ex.imaging_submode << 4;
     return k;
 }
 
@@ -455,6 +457,7 @@ void mw2er_partition_reset(Mw2erGeomPartition &p)
     p.wire_occ_indices.clear();
     p.wire_line_indices.clear();
     p.wire_line_palette.clear();
+    p.wire_palette_index = -1;
     p.points.clear();
     p.lines.clear();
     p.tri_count = 0;
@@ -1036,7 +1039,7 @@ static void emit_indexed_fan(
 
 static void emit_indexed_loop(
     IndexStream &indices,
-    VertStream &palette,
+    VertStream *palette,
     uint32_t vertex_base,
     const int32_t *face_indices,
     int vcount,
@@ -1050,7 +1053,7 @@ static void emit_indexed_loop(
         int b = face_indices[(i + 1) % vcount];
         indices.line(
             vertex_base + (uint32_t)a, vertex_base + (uint32_t)b);
-        palette.emit({pal});
+        if (palette != nullptr) palette->emit({pal});
     }
 }
 
@@ -1168,10 +1171,11 @@ static void emit_imaging_face(
     uint32_t wire_base)
 {
     Mw2erGeomPartition &g = *ctx.part;
-    float pal = wireframe_palette_index(*ctx.mem, r.owner);
+    float pal = g.wire_palette_index >= 0 ? (float)g.wire_palette_index :
+        wireframe_palette_index(*ctx.mem, r.owner);
     emit_indexed_loop(
         g.wire_line_indices,
-        g.wire_line_palette,
+        g.wire_palette_index >= 0 ? nullptr : &g.wire_line_palette,
         wire_base,
         r.indices,
         r.vcount,
@@ -1603,7 +1607,7 @@ static void emit_satellite_wire_face(
     ensure_xyz_once(have_wire, wire_base, part.wire_verts, world, nvert);
     emit_indexed_loop(
         part.wire_line_indices,
-        part.wire_line_palette,
+        &part.wire_line_palette,
         *wire_base,
         indices,
         vcount,
@@ -2017,6 +2021,16 @@ static int extract_block(ExtractCtx &ctx, uint32_t flags, uint32_t entity_ref, u
         g_topo_cache.push_back(std::move(te));
     }
 
+    // Retained terrain may omit outline colors only when every face owner
+    // belongs to the default imaging color branch. Other blocks stay dynamic.
+    if (static_candidate && ex.part[MW2ER_PART_STATIC].wire_palette_index >= 0) {
+        for (int fi = 0; fi < nrec; ++fi) {
+            if (recs[fi].owner && (mem.u16(recs[fi].owner + 2) & 0x0700)) {
+                static_candidate = 0;
+                break;
+            }
+        }
+    }
     if (static_candidate && !has_mode3) {
         ctx.part = &ctx.ex->part[MW2ER_PART_STATIC];
         if (ex.static_block_ids.insert(block_data).second && ctx.reuse_static) {
@@ -3801,6 +3815,7 @@ int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
     init_sqrt_table();
     memset(&ex.camera, 0, sizeof(ex.camera));
     read_camera(mem, ex.camera);
+    ex.imaging_submode = mem.u32_rel(ADDR_IMAGING_SUBMODE);
     const Mw2erViewPolicy view_policy =
         mw2er_view_policy(render_view, ex.camera.camera_mode);
     if (render_view == MW2ER_VIEW_SATELLITE) {
@@ -3840,6 +3855,8 @@ int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
             ex.static_policy = UINT64_MAX;
         }
         ex.static_reused = reuse;
+        ex.part[MW2ER_PART_STATIC].wire_palette_index =
+            ex.camera.imaging_wireframe && ex.imaging_submode == 0 ? 8 : -1;
         ex.node_count = 0;
         ex.tree_node_count = 0;
         ex.lod_node_count = 0;

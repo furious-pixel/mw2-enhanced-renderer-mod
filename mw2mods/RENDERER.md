@@ -120,6 +120,17 @@
   other unfilled backgrounds use index 0. These clears follow palette effects
   without a special tint or extra draw pass. Extraction retains indices and
   the wipe flag rather than a redundant ground RGB value.
+- Retained static-terrain polygon outlines in imaging sub-mode 0 use constant
+  palette index 8 per draw, sampled from the live scene palette. Initial block
+  extraction checks every face owner for the default color-class branch;
+  exceptional blocks retain dynamic per-segment colors. Shared vertices, edge
+  indices, occluder indices, static CPU/GPU reuse, and draw ordering are unchanged.
+  Constant outlines allocate/upload no per-segment palette table. The indexed
+  shader receives its constant/table selection on every draw to prevent state
+  leakage into object outlines or solid triangles. Imaging sub-mode participates
+  in static-cache invalidation. Other outline colors and packed textured-triangle
+  lighting retain their existing tables; their general capacity limits remain
+  a separate follow-up.
 - `scene_extract.cpp::mw2er_view_policy` maps normal, enhanced imaging, X-ray,
   satellite, and rear/down/weapon MFD views to geometry representation, visible
   partitions, auxiliary behavior, and depth testing. Primary mode is resolved
