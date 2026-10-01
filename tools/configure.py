@@ -398,6 +398,7 @@ SCHEMA = [
                 "Presentation preferences for cameras and instruments.",
                 [
                     _item("rear_camera_mirror", "Mirror rear camera"),
+                    _item("frame_cadence", "Frame cadence graph"),
                     _item("alt_throttle_indicator_position",
                           "Alternate throttle indicator position"),
                     _item("radar_stroke_width", "Radar stroke width",

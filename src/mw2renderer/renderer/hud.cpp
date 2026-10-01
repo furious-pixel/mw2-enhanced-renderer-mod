@@ -3,6 +3,7 @@
 #include "compass_altimeter.h"
 #include "config.h"
 #include "font.h"
+#include "frame_cadence.h"
 #include "gl_program.h"
 #include "mem.h"
 #include "menu.h"
@@ -17,6 +18,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -2272,7 +2274,109 @@ static int draw_mfd_camera_label(const Rect &pane,
                         size_px, width, height, palette);
 }
 
+struct CadenceOverlay {
+    Mw2erFrameCadence history;
+    Mw2erFrameCadence::Summary summary;
+    double next_label_seconds = 0;
+    char headline[80] = {};
+    char detail[96] = {};
+    char footer[80] = {};
+};
+static CadenceOverlay g_cadence;
+
+static void sample_frame_cadence()
+{
+    if (!mw2er_config().hud_frame_cadence) {
+        if (g_cadence.history.previous_seconds >= 0) g_cadence = {};
+        return;
+    }
+    // Measure this point in the primary HUD submission, not guest capture,
+    // compositor repeats, GPU completion, swap completion or scanout.
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    g_cadence.history.record(now);
+    if (now >= g_cadence.next_label_seconds) {
+        g_cadence.summary = g_cadence.history.summarize();
+        const auto &s = g_cadence.summary;
+        if (g_cadence.history.count < 8) {
+            std::snprintf(g_cadence.headline, sizeof(g_cadence.headline),
+                          "RENDER FPS - WARMING UP");
+            std::snprintf(g_cadence.detail, sizeof(g_cadence.detail),
+                          "FRAME TIMES / 240 SAMPLES");
+            std::snprintf(g_cadence.footer, sizeof(g_cadence.footer),
+                          "RED: >1.5x MEDIAN");
+        } else {
+            std::snprintf(g_cadence.headline, sizeof(g_cadence.headline),
+                          "RENDER %.1f FPS", s.fps);
+            std::snprintf(g_cadence.detail, sizeof(g_cadence.detail),
+                          "P99 %.1fms MAX %.1fms", s.p99_ms, s.max_ms);
+            std::snprintf(g_cadence.footer, sizeof(g_cadence.footer),
+                          "MED %.1fms >1.5x:%d", s.median_ms, s.spikes);
+        }
+        g_cadence.next_label_seconds = now + 0.25;
+    }
+}
+
 } // namespace
+
+int mw2er_hud_render_cadence(int width, int height)
+{
+    if (!mw2er_config().hud_frame_cadence ||
+        g_cadence.history.previous_seconds < 0) return 1;
+    // Draw after the game compositor's brightness LUT and fade, using the
+    // ordinary rectangle/font resources with explicit, palette-free RGBA.
+    // Repeated presentations redraw the last history without sampling it.
+    const float scale = std::clamp(height / 768.0f, 0.75f, 2.0f);
+    const float x = 8 * scale, y = 8 * scale;
+    const float graph_top = y + 34 * scale, graph_bottom = y + 64 * scale;
+    const float graph_width = 180 * scale;
+    const double range_ms = std::max(50.0, g_cadence.summary.median_ms * 3);
+    const float white[4] = {0.9f, 0.95f, 1.0f, 1.0f};
+    Mw2erHudVertex vertices[6 * 82];
+    int vertex_count = 0;
+    const auto box = [&](float left, float top, float right, float bottom,
+                         float r, float g, float b, float a) {
+        const Mw2erHudVertex quad[6] = {
+            {left, top, r, g, b, a}, {right, top, r, g, b, a},
+            {left, bottom, r, g, b, a}, {left, bottom, r, g, b, a},
+            {right, top, r, g, b, a}, {right, bottom, r, g, b, a}};
+        std::copy(quad, quad + 6, vertices + vertex_count);
+        vertex_count += 6;
+    };
+    box(x, y, x + graph_width + 12 * scale, y + 84 * scale,
+        0.015f, 0.025f, 0.035f, 0.9f);
+    // Three samples per column, keeping the maximum so a spike cannot be
+    // averaged away. Newest samples remain at the right edge.
+    for (int column = 0; column < 80; ++column) {
+        const int first = g_cadence.history.count - (80 - column) * 3;
+        double peak = 0;
+        for (int i = std::max(0, first); i < first + 3; ++i)
+            peak = std::max(peak, g_cadence.history.interval(i));
+        if (peak <= 0) continue;
+        const bool spike = g_cadence.history.count >= 8 &&
+            g_cadence.summary.median_ms > 0 &&
+            peak > g_cadence.summary.median_ms * 1.5;
+        const float left = x + 6 * scale + column * graph_width / 80;
+        const float top = graph_bottom - (float)std::min(1.0, peak / range_ms) *
+            (graph_bottom - graph_top);
+        box(left, top, left + graph_width / 80 - scale, graph_bottom,
+            spike ? 1.0f : 0.25f, spike ? 0.25f : 0.85f, 0.3f, 1.0f);
+    }
+    const float threshold = graph_bottom - (float)(g_cadence.summary.median_ms *
+        1.5 / range_ms) * (graph_bottom - graph_top);
+    box(x + 6 * scale, threshold, x + 6 * scale + graph_width, threshold + scale,
+        1.0f, 0.55f, 0.1f, 0.7f);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    if (!mw2er_hud_submit_rects(vertices, vertex_count, width, height)) return 0;
+    const int font_size = (int)std::lround(11 * scale);
+    return mw2er_font_draw(1398, g_cadence.headline, font_size, 0,
+        x + 6 * scale, y + 4 * scale, 1, white, width, height, 1) == MW2ER_OK &&
+        mw2er_font_draw(1399, g_cadence.detail, (int)std::lround(10 * scale), 0,
+        x + 6 * scale, y + 18 * scale, 1, white, width, height, 1) == MW2ER_OK &&
+        mw2er_font_draw(1400, g_cadence.footer, (int)std::lround(10 * scale), 0,
+        x + 6 * scale, y + 68 * scale, 1, white, width, height, 1) == MW2ER_OK;
+}
 
 int mw2er_hud_submit_rects(const Mw2erHudVertex *vertices, int32_t count,
                            int32_t width, int32_t height)
@@ -2298,6 +2402,7 @@ int mw2er_hud_submit_rects(const Mw2erHudVertex *vertices, int32_t count,
 
 void mw2er_hud_mission_reset(void)
 {
+    g_cadence = {};
     mw2er_menu_mission_reset();
     mw2er_radar_mission_reset();
     mw2er_compass_altimeter_reset();
@@ -2321,6 +2426,7 @@ void mw2er_hud_mission_reset(void)
 
 void mw2er_hud_gl_reset(void)
 {
+    g_cadence = {};
     mw2er_menu_gl_reset();
     mw2er_radar_gl_reset();
     mw2er_targeting_gl_reset();
@@ -2669,11 +2775,14 @@ int32_t mw2er_hud_render(uint32_t overlay, int width, int height, int sample)
     if (!scene) return 0;
     const float *palette = scene->palette_rgb;
     if (g_hud.satellite_damage.active) {
+        if (g_cadence.history.previous_seconds >= 0) g_cadence = {};
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return 0;
     }
-    if (!g_hud.visible)
+    if (!g_hud.visible) {
+        if (g_cadence.history.previous_seconds >= 0) g_cadence = {};
         return mw2er_menu_render(width, height, palette);
+    }
     if (!mw2er_radar_render(width, height, palette, 1)) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
@@ -2748,6 +2857,7 @@ int32_t mw2er_hud_render(uint32_t overlay, int width, int height, int sample)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
     }
+    sample_frame_cadence();
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return 0;

@@ -799,6 +799,17 @@ int32_t mw2er_gl_composite(const Mw2erViewport *vp, const Mw2erPresentation *pre
         glBindVertexArray(g_gl.quad_vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
+    if (mw2er_config().hud_frame_cadence) {
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)vp->backbuffer_fbo);
+        glViewport(x, y, w, h);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        if (!mw2er_hud_render_cadence(w, h)) {
+            restore_host_baseline(vp);
+            return MW2ER_ERR_GL;
+        }
+    }
     restore_host_baseline(vp);
     return MW2ER_OK;
 }

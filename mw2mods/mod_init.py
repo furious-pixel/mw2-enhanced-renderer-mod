@@ -23,6 +23,7 @@ CONFIG_SCHEMA = {
         "entity_vertex_mode": ("matrix", ("matrix", "cached")),
     },
     "HUD": {
+        "frame_cadence": False,
         "position_scaling": (1.0, 0.0, 1.0),
         "panel_scaling": (0.6, 0.0, 1.0),
         "viewport_scaling": (1.0, 0.0, 1.0),
@@ -166,6 +167,7 @@ CONFIG_HELP = {
         "entity_vertex_mode": "Choose matrix-transformed local vertices or game-cached world vertices.",
     },
     "HUD": {
+        "frame_cadence": "Show render submission FPS and frame times at top left. Red spikes exceed 1.5 times the rolling median; this does not measure display scanout or audio.",
         "position_scaling": "Scale HUD positions from native layout toward viewport-height scaling.",
         "panel_scaling": "Scale ordinary HUD artwork from native size toward viewport-height scaling.",
         "viewport_scaling": "Scale camera panes from native size toward viewport-height scaling.",

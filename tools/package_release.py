@@ -18,9 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
     'README.md', 'LICENSE', 'COPYRIGHT', 'THIRD_PARTY_NOTICES.md', 'VERSION',
     'configure.bat', 'install_mw2_v11_patch.bat', 'dosbox-mw2.conf',
-    'launchmw2_30fps.bat', 'launchmw2_60fps.bat', 'launchmw2_72fps.bat',
-    'launchmw2_72fps_windowed.bat',
-    'launchmw2_sbs_compare.bat',
+    'launchmw2.bat',
 )
 MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py',
              '_printfps.py', 'joystick.example.conf')
@@ -37,7 +35,7 @@ REQUIRED = ('bin/dosbox-x.exe', 'bin/COPYING', 'bin/glshaders/NOTICE',
             'bin/licenses/SDL_net.txt', 'bin/licenses/freetype/GPLv2.TXT',
             'bin/licenses/pdcurses/core.md', 'bin/licenses/pdcurses/wincon.md', '.venv/Scripts/python.exe',
             '.venv/Scripts/pythonw.exe', '.venv/python-home/python314.dll',
-            '.venv/python-home/LICENSE.txt', 'tools/config_ui/index.html')
+            '.venv/python-home/LICENSE.txt', 'tools/config_ui/index.html', 'tools/launch_mw2.ps1')
 
 
 def copy_file(source: Path, destination: Path):
@@ -131,7 +129,8 @@ def main():
     copy_file(stage / 'mw2mods/mod.conf.example', stage / 'mw2mods/mod.conf')
     for name in ('media', 'tools/config_ui'):
         copy_tree(ROOT / name, stage / name)
-    copy_file(ROOT / 'tools/configure.py', stage / 'tools/configure.py')
+    for name in ('configure.py', 'launch_mw2.ps1'):
+        copy_file(ROOT / 'tools' / name, stage / 'tools' / name)
     copy_tree(args.host_root, stage / 'bin')
     # Copy only the environment's runtime directories, never a developer base runtime.
     for name in ('Scripts', 'Lib'):

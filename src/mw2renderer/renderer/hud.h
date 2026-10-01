@@ -26,5 +26,7 @@ int mw2er_hud_submit_rects(const Mw2erHudVertex *vertices, int32_t count,
 int mw2er_hud_satellite_damage_viewport(int32_t viewport[4]);
 int mw2er_hud_render_satellite_damage_radar(int width, int height);
 int32_t mw2er_hud_render(uint32_t overlay_fbo, int width, int height, int sample_scale);
+// Diagnostic drawing in the current backbuffer viewport, after game color effects.
+int mw2er_hud_render_cadence(int width, int height);
 
 #endif

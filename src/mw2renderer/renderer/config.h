@@ -25,6 +25,7 @@ struct Mw2erRendererConfig {
     float enhanced_mech_texture_uv_scale;
     float enhanced_dropship_texture_uv_scale;
     float hud_position_scaling;
+    int hud_frame_cadence;
     float hud_panel_scaling;
     float hud_viewport_scaling;
     float hud_font_scaling;

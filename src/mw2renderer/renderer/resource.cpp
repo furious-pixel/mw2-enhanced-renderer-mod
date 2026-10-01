@@ -384,7 +384,7 @@ void mw2er_resources_open(const Mw2erSessionInfo &session)
         g_prj->identity = identity;
         if (path.empty() || !path.is_absolute()) {
             g_prj->result = {Mw2erPrjStatus::IoError, "path", 0, 0,
-                "host did not observe an absolute MECH2.EXE path"};
+                "host did not observe an absolute MW2.EXE path"};
             g_prj->done.store(true, std::memory_order_release);
             prj_progress();
             return;

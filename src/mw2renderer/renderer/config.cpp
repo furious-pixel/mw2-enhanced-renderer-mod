@@ -238,7 +238,9 @@ static void apply_key(const char *key, const char *value)
 
 static void apply_hud_key(const char *key, const char *value)
 {
-    if (strcmp(key, "position_scaling") == 0) {
+    if (strcmp(key, "frame_cadence") == 0) {
+        g_cfg.hud_frame_cadence = parse_bool(value, g_cfg.hud_frame_cadence);
+    } else if (strcmp(key, "position_scaling") == 0) {
         g_cfg.hud_position_scaling = (float)atof(value);
     } else if (strcmp(key, "panel_scaling") == 0) {
         g_cfg.hud_panel_scaling = (float)atof(value);
