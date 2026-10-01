@@ -111,6 +111,15 @@
   from resource and rendering state. Known pacing limits include short catch-up
   intervals and guest fade-duration quantization.
 
+- Native scene clears resolve indices through the captured frame palette.
+  Main enhanced-imaging/X-ray views and the background-wipe flag at reloc
+  `0x000A711C` use the low-byte fill index at `0x000A6F70`, with sky and
+  gradient disabled. Satellite clears use the ground index. Target previews
+  have no sky/ground and clear to palette index 0, matching empty target and
+  inactive weapon-camera panes. MFD cameras retain normal sky/ground handling;
+  other unfilled backgrounds use index 0. These clears follow palette effects
+  without a special tint or extra draw pass. Extraction retains indices and
+  the wipe flag rather than a redundant ground RGB value.
 - `scene_extract.cpp::mw2er_view_policy` maps normal, enhanced imaging, X-ray,
   satellite, and rear/down/weapon MFD views to geometry representation, visible
   partitions, auxiliary behavior, and depth testing. Primary mode is resolved

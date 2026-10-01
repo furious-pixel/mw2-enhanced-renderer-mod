@@ -182,7 +182,8 @@ struct Mw2erSceneExtract {
     int ground_visible;
     int draw_gradient;
     uint32_t gradient_height;
-    float ground_color[3];
+    uint8_t fill_palette_index;
+    int background_wipe;
     Mw2erCamera camera;
     char mission_name[32];
     Mw2erLighting lighting;

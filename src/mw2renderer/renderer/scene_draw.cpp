@@ -2113,21 +2113,21 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     glDisable(GL_BLEND);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
-    if (camera.imaging_wireframe ||
-        part_mask == (1u << MW2ER_PART_TARGET)) {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    } else {
-        glClearColor(
-            ex.ground_color[0],
-            ex.ground_color[1],
-            ex.ground_color[2],
-            1.0f);
-    }
+    // Only the main scene takes the indexed imaging/background wipe.
+    const bool wipe = !view_policy.auxiliary && !camera.satellite_view &&
+        (camera.imaging_wireframe || ex.background_wipe);
+    const bool target = part_mask == (1u << MW2ER_PART_TARGET);
+    const bool ground = !target && (ex.ground_visible || camera.satellite_view);
+    // Match empty HUD panes: index 0 is normally black but follows palette effects.
+    const int clear_index = wipe ? ex.fill_palette_index :
+        (ground ? ex.ground_palette_index : 0);
+    const float *clear = ex.palette_rgb + 3 * clear_index;
+    glClearColor(clear[0], clear[1], clear[2], 1.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (ex.sky_visible && !camera.imaging_wireframe &&
-        !camera.satellite_view && (part_mask & (1u << MW2ER_PART_SCENE))) {
+    if (ex.sky_visible && !wipe && !camera.satellite_view &&
+        (part_mask & (1u << MW2ER_PART_SCENE))) {
         SkyPass &sky = g_gpu.sky;
         glDisable(GL_DEPTH_TEST);
         sky.prog.use();

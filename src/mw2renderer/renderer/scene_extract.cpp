@@ -32,6 +32,8 @@ enum {
     ADDR_CAMERA_NEAR_DEPTH = 0x0015FFC8,
     ADDR_CAMERA_FOCAL = 0x000A7020,
     ADDR_PALETTE = 0x000B5390,
+    ADDR_FILL_PALETTE_INDEX = 0x000A6F70,
+    ADDR_BACKGROUND_WIPE = 0x000A711C,
     ADDR_SKY_PALETTE_INDEX = 0x000A6F74,
     ADDR_GROUND_PALETTE_INDEX = 0x000A6F78,
     ADDR_GRADIENT_ENABLE = 0x000A70F0,
@@ -3862,20 +3864,8 @@ int mw2er_extract_scene(const Mw2erMemoryView &view, Mw2erSceneExtract &ex,
         mem.u32_rel(ADDR_GRADIENT_BAND_ENABLE) != 0 &&
         ex.gradient_height > 0 &&
         ex.ground_palette_index > ex.sky_palette_index;
-    {
-        int gi = ex.ground_palette_index;
-        if (gi > 255) {
-            gi = 255;
-        }
-        ex.ground_color[0] = ex.palette_rgb[gi * 3 + 0];
-        ex.ground_color[1] = ex.palette_rgb[gi * 3 + 1];
-        ex.ground_color[2] = ex.palette_rgb[gi * 3 + 2];
-    }
-    if (!ex.ground_visible) {
-        ex.ground_color[0] = 0.0f;
-        ex.ground_color[1] = 0.0f;
-        ex.ground_color[2] = 0.0f;
-    }
+    ex.fill_palette_index = mem.u8_rel(ADDR_FILL_PALETTE_INDEX);
+    ex.background_wipe = mem.u32_rel(ADDR_BACKGROUND_WIPE) != 0;
 
     if (!emit_geometry) {
         return 1;
