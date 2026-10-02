@@ -456,9 +456,11 @@ static void maybe_log_preload_complete(void)
 int32_t mw2er_resources_discover(const Mw2erMemoryView &memory)
 {
     if (g_generation != 0 && g_prj) {
-        const int32_t result = prj_progress();
+        prj_progress();
         if (g_prj) {
-            return result;
+            // Pending archive I/O must not prevent a coherent resident capture.
+            // Keep proactive guest acquisition deferred to the existing service.
+            return MW2ER_OK;
         }
         // An unavailable archive switches the whole source provider. Discover
         // guest resources normally instead of marking the preload complete.
@@ -663,8 +665,8 @@ int32_t mw2er_resources_service(
 const Mw2erResourceAsset *mw2er_resource_find(uint32_t type, uint32_t resource_id)
 {
     const uint64_t key = asset_key(type, resource_id);
-    if (g_prj) {
-        if (!g_generation || !prj_ready()) return NULL;
+    if (!g_generation) return NULL;
+    if (prj_ready()) {
         const auto &assets = g_prj->assets;
         const auto it = std::lower_bound(assets.begin(), assets.end(), key,
             [](const Mw2erResourceAsset &asset, uint64_t value) {
@@ -672,7 +674,7 @@ const Mw2erResourceAsset *mw2er_resource_find(uint32_t type, uint32_t resource_i
             });
         if (it != assets.end() && asset_key(it->type, it->resource_id) == key)
             return &*it;
-        // Only a genuine absent key reaches the mission-owned guest fallback.
+        // Missing or not-yet-published archive data permits resident fallback.
     }
     const auto it = asset_position(key);
     if (it != g_assets.end() && asset_key(it->type, it->resource_id) == key) {
@@ -683,8 +685,8 @@ const Mw2erResourceAsset *mw2er_resource_find(uint32_t type, uint32_t resource_i
 
 int mw2er_resources_have_type(uint32_t type)
 {
-    if (g_prj) {
-        if (!g_generation || !prj_ready()) return 0;
+    if (!g_generation) return 0;
+    if (prj_ready()) {
         const auto &assets = g_prj->assets;
         const auto it = std::lower_bound(assets.begin(), assets.end(), asset_key(type, 0),
             [](const Mw2erResourceAsset &asset, uint64_t value) {
@@ -698,7 +700,48 @@ int mw2er_resources_have_type(uint32_t type)
 
 int mw2er_resources_allow_guest_fallback(void)
 {
-    return !g_prj || prj_ready();
+    return g_generation != 0;
+}
+
+Mw2erLumaLookup mw2er_resource_copy_resident_luma(
+    const Mem &mem, int32_t selected, uint8_t (&body)[16][256])
+{
+    if (selected < 0 || selected > INT16_MAX) return Mw2erLumaLookup::InvalidId;
+    constexpr uint32_t buckets_reloc = 0x000A6D08;
+    constexpr uint32_t bucket_count = 1009;
+    uint32_t buckets = 0, node = 0;
+    if (mem.delta > UINT32_MAX - buckets_reloc ||
+        !mem.read_rel(buckets_reloc, &buckets, sizeof(buckets)) || !buckets ||
+        buckets > UINT32_MAX - bucket_count * 4 ||
+        !mem.view(buckets, bucket_count * 4)) return Mw2erLumaLookup::InvalidCache;
+    const uint32_t bucket = (selected + 'L' + 'U' + 'M' + 'A') % bucket_count;
+    if (!mem.read(buckets + bucket * 4, &node, sizeof(node)))
+        return Mw2erLumaLookup::InvalidCache;
+    // Brent cycle detection bounds work without allocations or extra guest reads.
+    uint32_t checkpoint = node, span = 1, distance = 0;
+    for (unsigned visited = 0; node && visited < 1000; ++visited) {
+        uint8_t header[12];
+        if (node > UINT32_MAX - sizeof(header) ||
+            !mem.read(node, header, sizeof(header))) return Mw2erLumaLookup::InvalidCache;
+        int16_t id;
+        uint32_t next;
+        memcpy(&id, header, sizeof(id));
+        memcpy(&next, header + 8, sizeof(next));
+        if (id == selected && memcmp(header + 4, "LUMA", 4) == 0) {
+            if (node > UINT32_MAX - 0x14 - sizeof(body) ||
+                !mem.read(node + 0x14, body, sizeof(body)))
+                return Mw2erLumaLookup::InvalidCache;
+            return Mw2erLumaLookup::Ready;
+        }
+        node = next;
+        if (node && node == checkpoint) return Mw2erLumaLookup::InvalidCache;
+        if (++distance == span) {
+            checkpoint = node;
+            span *= 2;
+            distance = 0;
+        }
+    }
+    return node ? Mw2erLumaLookup::InvalidCache : Mw2erLumaLookup::Missing;
 }
 
 int mw2er_resource_retain_cel(

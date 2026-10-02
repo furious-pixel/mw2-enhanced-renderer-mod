@@ -17,6 +17,9 @@ struct Sample {
     int32_t countdown = 0, target = 0, source = 0, returning = 0, brightness = 0;
     int32_t frame_duration_ticks = 0;
     bool fade_valid = false, remap_valid = false;
+    int32_t luma_id = 0;
+    const char *luma_origin = nullptr;
+    uint32_t unavailable_materials = 0, unsupported_materials = 0;
     Mw2erStartupWork work;
 };
 Sample g_samples[8192];
@@ -52,6 +55,8 @@ Sample *append(uint32_t event, uint32_t pending, double now)
     }
     Sample &s = g_samples[g_count++];
     s = {};
+    s.luma_id = -1;
+    s.luma_origin = "unavailable";
     s.frame = g_frame;
     s.epoch_ms = now;
     s.event = event;
@@ -95,11 +100,13 @@ void mw2er_startup_flush(const char *reason)
             "renderer_startup frame=%llu epoch_ms=%.3f event=%u phase=%u pending=%u "
             "dda=%d/%d first=%d entries=%d valid=%d countdown=%d target=%d source=%d return=%d "
             "brightness=%d frame_duration_ticks=%d remap=%llu classification=%llu remap_valid=%d "
+            "luma=%d origin=%s unavailable_materials=%u unsupported_materials=%u "
             "hist=%u/%.3f atlas=%u/%.3f classify=%u/%.3f poly=%u/%.3f gpu_cel=%u/%.3f hit=%u identity=%u",
             (unsigned long long)s.frame, s.epoch_ms, s.event, s.phase, s.pending,
             s.completed, s.total, s.first, s.entries, s.fade_valid, s.countdown,
             s.target, s.source, s.returning, s.brightness, s.frame_duration_ticks,
             (unsigned long long)s.remap, (unsigned long long)s.classification, s.remap_valid,
+            s.luma_id, s.luma_origin, s.unavailable_materials, s.unsupported_materials,
             w.count[0], w.ms[0], w.count[1], w.ms[1], w.count[2], w.ms[2],
             w.count[3], w.ms[3], w.count[4], w.ms[4], w.count[5], w.count[6]);
         mw2er_log(line);
@@ -157,10 +164,20 @@ void mw2er_startup_present(bool loading, bool handoff, bool scene, uint32_t pend
     }
 }
 
-void mw2er_startup_texture_context(bool valid, uint64_t remap, uint64_t classification)
+void mw2er_startup_texture_context(bool valid, uint64_t remap, uint64_t classification,
+                                   int32_t selected, const char *origin)
 {
     if (!g_current) return;
+    g_current->luma_id = selected;
+    g_current->luma_origin = origin;
     g_current->remap_valid = valid;
     g_current->remap = remap;
     g_current->classification = classification;
+}
+
+void mw2er_startup_materials(uint32_t unavailable, uint32_t unsupported)
+{
+    if (!g_current) return;
+    g_current->unavailable_materials = unavailable;
+    g_current->unsupported_materials = unsupported;
 }

@@ -5,7 +5,6 @@
 #include "presentation.h"
 #include "scene_extract.h"
 #include "scene_draw.h"
-#include "texture.h"
 #include "hud.h"
 #include "menu.h"
 #include "font.h"
@@ -20,6 +19,8 @@ struct Mw2erProcessState {
     int mission;
     int frame_build;
     int frame_sealed;
+    bool sealed_materials_ready;
+    bool published_materials_ready;
     uint64_t session_generation;
     uint64_t mission_generation;
     uint64_t resource_generation;
@@ -173,6 +174,7 @@ static void reset_frame_transaction(void) noexcept
     g_state.frame_build = 0;
     g_state.frame_sealed = 0;
     g_state.sealed_frame = 0;
+    g_state.sealed_materials_ready = false;
     memset(&g_state.mem, 0, sizeof(g_state.mem));
     memset(&g_state.frame, 0, sizeof(g_state.frame));
 }
@@ -214,6 +216,7 @@ static int32_t api_begin_session(const Mw2erSessionInfo *session)
         session->archive_identity);
     mw2er_resources_open(*session);
     reset_frame_transaction();
+    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
     return MW2ER_OK;
 }
@@ -235,6 +238,7 @@ static void api_end_session(uint64_t session_generation) noexcept
     g_state.mission_generation = 0;
     g_state.resource_generation = 0;
     reset_frame_transaction();
+    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
 }
 
@@ -264,6 +268,7 @@ static int32_t api_begin_mission(const Mw2erMissionInfo *mission)
     mw2er_scene_mission_reset();
     mw2er_hud_mission_reset();
     mw2er_resources_begin(g_state.resource_generation);
+    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
     mw2er_log("mw2renderer: mission_begin");
     return MW2ER_OK;
@@ -284,6 +289,7 @@ static void api_end_mission(uint64_t mission_generation) noexcept
     mw2er_presentation_reset();
     mw2er_scene_mission_reset();
     mw2er_hud_mission_reset();
+    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
 }
 
@@ -305,6 +311,7 @@ static int32_t api_on_gl_context(const Mw2erViewport *vp)
 static void api_on_gl_context_lost(void) noexcept
 {
     mw2er_gl_shutdown();
+    g_state.published_materials_ready = false;
 }
 
 static int32_t api_mission_begin(const Mw2erMemoryView *mem)
@@ -373,6 +380,7 @@ static int32_t api_capture(const Mw2erCaptureInput *input)
         g_state.publication_id = 0;
         mw2er_scene_mission_reset(true);
         mw2er_resources_begin(g_state.resource_generation);
+        g_state.published_materials_ready = false;
         mw2er_gl_invalidate_publication();
         mw2er_hud_mission_reset();
     }
@@ -423,6 +431,7 @@ static int32_t api_seal_frame(uint64_t frame)
         mw2er_set_error("seal_frame: incomplete or mismatched frame");
         return MW2ER_ERR_NOT_READY;
     }
+    g_state.sealed_materials_ready = mw2er_scene_materials_ready();
     g_state.frame_sealed = 1;
     g_state.sealed_frame = frame;
     return MW2ER_OK;
@@ -482,7 +491,8 @@ static int32_t publish_frame(Mw2erPublishResult *result)
         return publish_result;
     }
     g_state.publication_id += 1;
-    const bool materials_ready = mw2er_texture_remap_ready();
+    const bool materials_ready = g_state.sealed_materials_ready;
+    g_state.published_materials_ready = materials_ready;
     if (materials_ready)
         mw2er_presentation_published(
             mw2er_resources_pending(g_state.resource_generation));
@@ -523,7 +533,7 @@ static int32_t api_composite_frame(
     const Mw2erPresentation presentation = mw2er_presentation_get(
         present->time_seconds,
         present->viewport.view_mode,
-        g_state.publication_id != 0 && mw2er_texture_remap_ready(),
+        g_state.publication_id != 0 && g_state.published_materials_ready,
         mw2er_resources_pending(g_state.resource_generation));
     const int32_t composite_result = mw2er_gl_composite(
         &present->viewport, &presentation);
@@ -620,7 +630,7 @@ static int32_t api_composite(const Mw2erViewport *vp)
     const Mw2erPresentation presentation = mw2er_presentation_get(
         g_state.frame.time_seconds,
         vp->view_mode,
-        g_state.publication_id != 0 && mw2er_texture_remap_ready(),
+        g_state.publication_id != 0 && g_state.published_materials_ready,
         mw2er_resources_pending(g_state.resource_generation));
     return mw2er_gl_composite(vp, &presentation);
 }
@@ -689,6 +699,7 @@ struct StatusBoundary<Function> {
             mw2er_set_error("unexpected C++ exception in renderer");
         }
         reset_frame_transaction();
+        g_state.published_materials_ready = false;
         mw2er_gl_invalidate_publication();
         return MW2ER_ERR_GENERIC;
     }

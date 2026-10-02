@@ -41,19 +41,20 @@
   satellite-damage scratch target. Both target sets temporarily coexist
   during a resize, with no additional steady-frame targets.
 - `[renderer] load_resources_from_prj` defaults to true. `prj_archive.cpp` owns
-  one read-only archive handle and the sparse numeric CEL/POLY index. Production
+  one read-only archive handle and the sparse numeric CEL/POLY/LUMA index. Production
   loading requires the qualified archive's size and SHA-256, computed from the
   same handle used for resource reads. Checked little-endian decoding validates
   directory/index bounds, DATA wrappers, requested type/id, and payload sizes.
   Other hashes remain unsupported; symbol names and other backing files are
   not used for numeric lookup.
-- `resource.cpp` loads every occupied CEL and POLY in one background worker,
+- `resource.cpp` loads every occupied CEL, POLY and LUMA in one background worker,
   publishing the complete immutable CPU source cache only after validation
   succeeds. CEL assets retain dimensions and palette indices; POLY assets
   retain the entire WTBO body, including opaque trailers and point/line/DUMMY
   resources. Retaining source bytes does not extend the ordinary mesh decoder.
   The worker makes no guest-memory reads, guest acquire/release calls, or GL
-  calls. Scene capture waits while the cache is pending. A path, qualification,
+  calls. Coherent scene capture may use resident guest resources while the cache
+  is pending; proactive guest acquisition remains deferred. A path, qualification,
   read, validation, or worker failure logs its reason once for that attempt
   inside a multiline asterisk banner explicitly announcing guest-memory fallback,
   joins the worker, discards the entire unpublished cache, and resumes ordinary
@@ -76,8 +77,10 @@
   DOSBox-X services them through guest acquire/release at safe points. The
   loading handoff waits for queued work with bounded unavailable/stall fallbacks.
   Hosts that cannot resolve `MECH2.EXE` use this same memory-only flow.
-  After source loading, a missing texture omits affected draws, and a missing
-  renderer-selected POLY leaves installed game geometry available.
+  A missing required texture prevents complete replacement-scene coverage,
+  preserving native fallback. A missing renderer-selected POLY leaves installed
+  game geometry available. LUMA uses passive resident lookup only and is never
+  added to the guest acquisition queue.
 - Guest resource discovery reports queue allocation failures without marking the
   catalog complete. Failed acquisitions or copies rotate existing pending
   entries to the queue tail without allocating; retries preserve batch order
@@ -93,7 +96,7 @@
   per descriptor-capture batch, shared with the MFD. Actual remap and palette
   bytes invalidate classification, including in-place changes at the same
   guest address. Referenced CELs are classified lazily once per revision.
-  Identity is proven against all 16 remap rows for every used opaque index;
+  Identity is proven against all 16 remap rows for every used index, including 255;
   RGB identity under a black palette is not sufficient. This proof is valid
   only for the current remap revision, not permanently across levels.
 - `startup_trace.cpp` owns opt-in, bounded startup diagnostics, enabled by
@@ -466,17 +469,35 @@ classification consume the same floating-point palette. Monitor brightness is
 applied once by the existing continuous compositor lookup. Existing framebuffer
 and output formats still determine final display precision.
 
-The qualified archive provider also owns complete 4096-byte LUMA bodies.
-`texture.cpp` resolves the current LTBL selection independently of native lazy
-acquisition, compares any guest body against that selected resource, and keeps
-conflicts or unavailable mappings unresolved. Scene coverage and presentation
-require mapping readiness. Unsupported transparency remaps retain native output.
+The qualified archive provider owns complete 4096-byte LUMA bodies. At coherent
+capture, `texture.cpp` reads the selected resource ID and prefers its validated
+immutable archive body. When absent, disabled, failed or still loading,
+`resource.cpp` copies the selected LUMA from the resident guest resource cache.
+The checked lookup rejects invalid IDs, unreadable data, cycles and chains over
+1000 nodes; a linked entry remains usable when its release state is zero.
+No guest function is called and no guest pointer is retained. The cached native
+draw pointer cannot veto an archive mapping or substitute for resource identity.
+
+Guest bodies are compared in full on every capture, detecting same-ID in-place
+edits. Immutable archive identity avoids repeated body comparisons. Identical
+bytes across source/address changes preserve mapping and classification revisions;
+mission resets clear their resource associations. CEL histograms, masks and GPU
+images follow the selected owned CEL body and dimensions across source changes.
 CEL source-index masks include index 255; four mask comparisons against the
 LUMA fixed-index mask prove identity independently of palette RGB. Proofs change
 with resource/mapping generations, not fades. Mirrored atlases preserve them
 because they only repeat source indices. Other CELs retain palette-dependent
 compatibility classification and refresh GPU material fields independently of
-pixel-storage reuse.
+pixel-storage reuse, including recovery from unavailable inputs.
+
+Scene readiness resolves only materials required by the primary and auxiliary
+views. Direct-palette billboard paths do not require LUMA. Missing mappings and
+unsupported materials both prevent complete scene coverage, but remain distinct:
+a mapping that makes index 255 opaque blocks only materials using that index.
+Readiness is sealed with the captured frame and retained with its publication;
+composition never consults a newer capture's mutable texture state. Existing
+loading requirements still apply. Offline replay uses the same resident lookup
+and reports missing required material input rather than guessing an identity map.
 
 The enhanced compatibility classifier checks shade-0 and shade-8 colors against
 shade-15 for every used source index before permitting darkening or split-fog.
@@ -485,9 +506,11 @@ an authored dark camo region from retaining contrast through brighter fog merely
 because the endpoint is dim in absolute RGB or the brightest texel darkens.
 This is an approximation policy, not a full per-index native response curve.
 
-Normal capture adds bounded palette-state work and a shared LUMA consistency
-check; fades can trigger more nonidentity classifications. The brightening guard
-adds one midpoint palette lookup per used index during those classifications.
+Normal capture adds bounded palette-state work and source selection. Only guest
+fallback traverses a resident chain and copies/compares 4 KiB per capture; there
+is no per-frame PRJ/guest agreement check. Fades can trigger more nonidentity
+classifications. The brightening guard adds one midpoint palette lookup per used
+index during those classifications.
 Identity CELs bypass RGB fitting. Stock LUMA preload adds 12 KiB; no extra scene
-walk or draw pass is introduced. Performance is unmeasured; broader response
+walk or draw pass is introduced. Full-game overhead is unmeasured; broader response
 curve work and classification optimization remain deferred.

@@ -237,6 +237,7 @@ struct CelGpu {
     int wrap;
     int role;
     GLuint tex;
+    const uint8_t *source_pixels;
 };
 
 struct SceneGpu {
@@ -294,7 +295,9 @@ static int g_retained_workload;
 static int g_debug_groups_requested;
 static float g_line_range_max = 1.0f;
 static Mw2erResolvedTexture g_resolved_desc[MW2ER_MAX_DESC];
-static uint8_t g_resolved_desc_valid[MW2ER_MAX_DESC];
+// 0 unseen, 1 ready, 2 unavailable, 3 unsupported; resolve each required slot once.
+static uint8_t g_resolved_desc_status[MW2ER_MAX_DESC];
+static uint32_t g_unavailable_materials, g_unsupported_materials;
 
 static double now_ms(void)
 {
@@ -1528,7 +1531,7 @@ static GLuint cel_gpu_tex(const Mw2erResolvedTexture &tex)
     for (size_t i = 0; i < g_gpu.cel.size(); ++i) {
         if (g_gpu.cel[i].resource_id == rid && g_gpu.cel[i].w == w &&
             g_gpu.cel[i].h == h && g_gpu.cel[i].wrap == wrap &&
-            g_gpu.cel[i].role == role) {
+            g_gpu.cel[i].role == role && g_gpu.cel[i].source_pixels == tex.source_pixels) {
             return g_gpu.cel[i].tex;
         }
     }
@@ -1537,7 +1540,7 @@ static GLuint cel_gpu_tex(const Mw2erResolvedTexture &tex)
     }
     const Mw2erStartupScope trace(MW2ER_STARTUP_GPU_CEL);
     // Allocate the owning slot before creating a GL name: vector growth can throw.
-    g_gpu.cel.push_back({rid, w, h, wrap, role, 0});
+    g_gpu.cel.push_back({rid, w, h, wrap, role, 0, tex.source_pixels});
     GLuint &id = g_gpu.cel.back().tex;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
@@ -1573,23 +1576,43 @@ static void bind_slot_texture(int desc)
     glBindTexture(GL_TEXTURE_2D, g_gpu.desc[desc].tex);
 }
 
+static void capture_partition_materials(const Mem &mem, const Mw2erGeomPartition &gp)
+{
+    for (int ui = 0; ui < gp.used_desc_n; ++ui) {
+        const int desc = gp.used_desc[ui];
+        if (g_resolved_desc_status[desc]) continue;
+        Mw2erResolvedTexture &tex = g_resolved_desc[desc];
+        const bool ready = mw2er_texture_resolve(mem, desc, tex) && tex.valid;
+        g_resolved_desc_status[desc] = ready ? 1 : tex.unsupported ? 3 : 2;
+        if (!ready) {
+            if (tex.unsupported) ++g_unsupported_materials;
+            else ++g_unavailable_materials;
+        }
+    }
+}
+
 static void capture_desc_slots(const Mem &mem)
 {
     mw2er_texture_begin_frame(mem, g_primary.ex.palette_rgb);
-    memset(g_resolved_desc_valid, 0, sizeof(g_resolved_desc_valid));
-    for (const Mw2erSceneExtract *ex : {&g_primary.ex, &g_mfd.ex}) {
-        if (ex == &g_mfd.ex && g_required_geometry ==
-            mw2er_view_policy(g_primary_view, -1).extraction) break;
-        for (const Mw2erGeomPartition &gp : ex->part) {
-            for (int ui = 0; ui < gp.used_desc_n; ++ui) {
-                const int desc = gp.used_desc[ui];
-                if (g_resolved_desc_valid[desc]) continue;
-                Mw2erResolvedTexture &tex = g_resolved_desc[desc];
-                g_resolved_desc_valid[desc] =
-                    mw2er_texture_resolve(mem, desc, tex) && tex.valid;
-            }
-        }
+    memset(g_resolved_desc_status, 0, sizeof(g_resolved_desc_status));
+    g_unavailable_materials = g_unsupported_materials = 0;
+    const auto primary = mw2er_view_policy(g_primary_view, g_primary.ex.camera.camera_mode);
+    const auto mfd_view = mw2er_hud_mfd_render_view();
+    const auto mfd = mw2er_view_policy(mfd_view, -1);
+    uint32_t primary_parts = primary.part_mask;
+    if (mfd_view != MW2ER_VIEW_NONE && mfd.extraction == primary.extraction)
+        primary_parts |= mfd.part_mask;
+    for (int part = 0; part < MW2ER_PART_COUNT; ++part) {
+        if (primary_parts & (1u << part)) capture_partition_materials(mem, g_primary.ex.part[part]);
+        if (mfd_view != MW2ER_VIEW_NONE && mfd.extraction != primary.extraction &&
+            (mfd.part_mask & (1u << part))) capture_partition_materials(mem, g_mfd.ex.part[part]);
     }
+    mw2er_startup_materials(g_unavailable_materials, g_unsupported_materials);
+}
+
+bool mw2er_scene_materials_ready(void)
+{
+    return g_required_geometry && !g_unavailable_materials && !g_unsupported_materials;
 }
 
 static void sync_desc_slots(void)
@@ -1600,7 +1623,7 @@ static void sync_desc_slots(void)
      * part of the retained render state. */
     glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_INDEXED);
     for (int desc = 0; desc < MW2ER_MAX_DESC; ++desc) {
-        if (!g_resolved_desc_valid[desc]) {
+        if (g_resolved_desc_status[desc] != 1) {
             g_gpu.desc[desc].valid = 0;
             g_gpu.desc[desc].tex = 0;
             continue;
@@ -1655,7 +1678,8 @@ void mw2er_scene_mission_reset(bool loading)
 {
     g_required_geometry = 0;
     g_primary_view = MW2ER_VIEW_NONE;
-    memset(g_resolved_desc_valid, 0, sizeof(g_resolved_desc_valid));
+    memset(g_resolved_desc_status, 0, sizeof(g_resolved_desc_status));
+    g_unavailable_materials = g_unsupported_materials = 0;
     for (SceneGeometry *scene : {&g_primary, &g_mfd}) {
         mw2er_extract_free(scene->ex);
         scene->force_upload = 1;
@@ -2038,6 +2062,8 @@ int32_t mw2er_scene_capture_target(uint32_t root, uint32_t entity,
         return MW2ER_ERR_GENERIC;
     }
     g_primary.changed = 1;
+    capture_partition_materials(Mem::from(*view), primary->part[MW2ER_PART_TARGET]);
+    mw2er_startup_materials(g_unavailable_materials, g_unsupported_materials);
     return MW2ER_OK;
 }
 

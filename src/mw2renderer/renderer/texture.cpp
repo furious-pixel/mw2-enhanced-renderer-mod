@@ -12,7 +12,6 @@
 enum {
     ADDR_TEXTURE_DESCRIPTOR_TABLE = 0x0013DFE0,
     ADDR_TEXTURE_CELL_TABLE = 0x0013FBE0,
-    ADDR_TEXTURE_REMAP_TABLE_PTR = 0x000A6DCC,
     ADDR_TEXTURE_REMAP_RESOURCE_ID = 0x000A6DBC,
     TEXTURE_REMAP_TABLE_COUNT = 16,
     TEXTURE_REMAP_TABLE_SIZE = 256,
@@ -42,6 +41,7 @@ struct CelCacheEntry {
     int enhanced_w;
     int enhanced_h;
     int enhancement_role_id;
+    const uint8_t *source_pixels = nullptr;
     uint32_t hist[256];
     uint64_t source_indices[4] = {};
     uint32_t n_opaque;
@@ -55,7 +55,8 @@ static std::vector<CelCacheEntry> g_cels;
 static uint8_t g_remap[16][256];
 static float g_palette[256 * 3];
 static uint64_t g_fixed_indices[4];
-static int32_t g_selected_luma = -1;
+static bool g_have_remap;
+static const uint8_t *g_archive_remap;
 static uint64_t g_remap_revision;
 static uint64_t g_classification_revision;
 static int g_remap_ready;
@@ -85,7 +86,8 @@ void mw2er_texture_free_cache(void)
 {
     g_cels.clear();
     g_remap_ready = 0;
-    g_selected_luma = -1;
+    g_have_remap = false;
+    g_archive_remap = nullptr;
 }
 
 static CelCacheEntry *cel_find(int resource_id)
@@ -413,28 +415,38 @@ void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb)
 {
     g_remap_ready = 0;
     int32_t selected = -1;
-    uint32_t ptr = 0;
-    if (!mem.read_rel(ADDR_TEXTURE_REMAP_RESOURCE_ID, &selected, sizeof(selected)) ||
-        !mem.read_rel(ADDR_TEXTURE_REMAP_TABLE_PTR, &ptr, sizeof(ptr))) {
-        mw2er_startup_texture_context(false, g_remap_revision, g_classification_revision);
+    const uint8_t *raw = nullptr;
+    uint8_t resident[16][256];
+    const char *origin = "invalid_selection";
+    if (mem.delta <= UINT32_MAX - ADDR_TEXTURE_REMAP_RESOURCE_ID &&
+        mem.read_rel(ADDR_TEXTURE_REMAP_RESOURCE_ID, &selected, sizeof(selected))) {
+        const Mw2erResourceAsset *asset = selected >= 0
+            ? mw2er_resource_find(MW2ER_RESOURCE_LUMA, (uint32_t)selected) : nullptr;
+        if (asset && asset->bytes.size() == sizeof(g_remap)) {
+            raw = asset->bytes.data();
+            origin = "prj";
+        } else {
+            const auto status = mw2er_resource_copy_resident_luma(mem, selected, resident);
+            origin = status == Mw2erLumaLookup::Ready ? "guest" :
+                status == Mw2erLumaLookup::Missing ? "not_resident" :
+                status == Mw2erLumaLookup::InvalidId ? "invalid_selection" : "invalid_cache";
+            if (status == Mw2erLumaLookup::Ready) raw = &resident[0][0];
+        }
+    }
+    if (!raw) {
+        g_archive_remap = nullptr;
+        mw2er_startup_texture_context(false, g_remap_revision,
+            g_classification_revision, selected, origin);
         return;
     }
-    // The provider qualifies the archive hash and owns immutable bodies across
-    // this resource generation. LTBL selection need not have acquired a guest
-    // pointer yet. Never replace a conflicting guest mapping with stock bytes.
-    const Mw2erResourceAsset *asset = selected >= 0
-        ? mw2er_resource_find(MW2ER_RESOURCE_LUMA, (uint32_t)selected) : nullptr;
-    const uint8_t *guest = ptr ? mem.view(ptr, sizeof(g_remap)) : nullptr;
-    if (!asset || asset->bytes.size() != sizeof(g_remap) ||
-        (ptr && (!guest || memcmp(guest, asset->bytes.data(), sizeof(g_remap)) != 0))) {
-        mw2er_startup_texture_context(false, g_remap_revision, g_classification_revision);
-        return;
-    }
-    const uint8_t *raw = asset->bytes.data();
-    const bool remap_changed = g_selected_luma < 0 ||
-        (selected != g_selected_luma && memcmp(g_remap, raw, sizeof(g_remap)) != 0);
-    const bool palette_changed = g_selected_luma < 0 ||
+    // Archive bodies are immutable. Guest bodies are freshly copied and compared
+    // on every capture, including same-ID/same-address changes. Source transitions
+    // with identical bytes retain the mathematical and classification revisions.
+    const bool remap_changed = !g_have_remap ||
+        (raw != g_archive_remap && memcmp(g_remap, raw, sizeof(g_remap)) != 0);
+    const bool palette_changed = !g_have_remap ||
         memcmp(g_palette, palette_rgb, sizeof(g_palette)) != 0;
+    g_archive_remap = raw == &resident[0][0] ? nullptr : raw;
     if (remap_changed) {
         memcpy(g_remap, raw, sizeof(g_remap));
         ++g_remap_revision;
@@ -450,21 +462,12 @@ void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb)
             if (fixed) g_fixed_indices[i >> 6] |= uint64_t(1) << (i & 63);
         }
     }
-    g_selected_luma = selected;
-    if (palette_changed)
-        memcpy(g_palette, palette_rgb, sizeof(g_palette));
-    if (remap_changed || palette_changed)
-        ++g_classification_revision;
-    // The compatibility shaders cannot make a transparent source texel opaque.
-    // Such mappings require native remap-before-transparency rendering.
-    g_remap_ready = (g_fixed_indices[3] & (uint64_t(1) << 63)) != 0;
-    mw2er_startup_texture_context(g_remap_ready != 0,
-        g_remap_revision, g_classification_revision);
-}
-
-bool mw2er_texture_remap_ready(void)
-{
-    return g_remap_ready != 0;
+    g_have_remap = true;
+    if (palette_changed) memcpy(g_palette, palette_rgb, sizeof(g_palette));
+    if (remap_changed || palette_changed) ++g_classification_revision;
+    g_remap_ready = 1;
+    mw2er_startup_texture_context(true, g_remap_revision,
+        g_classification_revision, selected, origin);
 }
 
 static const RemapClassification &cached_remap(CelCacheEntry &cel)
@@ -511,10 +514,6 @@ static CelCacheEntry *load_cel(
     int height;
     int pixel_count;
 
-    ent = cel_find(resource_id);
-    if (ent != NULL) {
-        return ent;
-    }
     asset = mw2er_resource_find(MW2ER_RESOURCE_CEL, (uint32_t)resource_id);
     if (asset == NULL) {
         if (!mw2er_resources_allow_guest_fallback()) return NULL;
@@ -555,8 +554,13 @@ static CelCacheEntry *load_cel(
         asset->bytes.size() != (size_t)asset->width * asset->height) {
         return NULL;
     }
+    ent = cel_find(resource_id);
+    if (ent && ent->source_pixels == asset->bytes.data() &&
+        ent->width == asset->width && ent->height == asset->height) return ent;
     const Mw2erStartupScope trace(MW2ER_STARTUP_HIST);
-    ent = cel_alloc();
+    if (!ent) ent = cel_alloc();
+    else *ent = CelCacheEntry{};
+    ent->source_pixels = asset->bytes.data();
     ent->enhanced_pixels.clear();
     ent->resource_id = resource_id;
     ent->width = asset->width;
@@ -777,18 +781,14 @@ int mw2er_texture_resolve(
     if (cel == NULL) {
         return 0;
     }
-    const Mw2erResourceAsset *asset = mw2er_resource_find(
-        MW2ER_RESOURCE_CEL, (uint32_t)cel->resource_id);
-    if (asset == NULL) {
-        return 0;
-    }
     out.valid = 1;
     out.width = cel->width;
     out.height = cel->height;
-    out.pixels = asset->bytes.data();
+    out.pixels = cel->source_pixels;
     out.wrap = desc_idx >= 0x100;
     out.discard_ff = desc_idx < 0x100;
     out.resource_id = cel->resource_id;
+    out.source_pixels = cel->source_pixels;
     out.animated_effect = animation_interval != 0 || selector != 0 || n_subs > 1;
     out.enhancement_role_id = 0;
     out.enhanced_uv_scale = 1.0f;
@@ -798,6 +798,14 @@ int mw2er_texture_resolve(
         return 0;
     }
     if (desc_idx >= 0x100) {
+        // Transparency is a material limitation, not a missing mapping. Only
+        // materials that actually use 255 depend on its remap-before-discard rule.
+        if ((cel->source_indices[3] & (uint64_t(1) << 63)) &&
+            !(g_fixed_indices[3] & (uint64_t(1) << 63))) {
+            out.unsupported = true;
+            out.valid = 0;
+            return 0;
+        }
         const RemapClassification &remap = cached_remap(*cel);
         out.remap_kind_id = remap.remap_kind_id;
         memcpy(out.dark_ratio, remap.dark_ratio, sizeof(out.dark_ratio));
@@ -814,7 +822,7 @@ int mw2er_texture_resolve(
             role = 0;
         }
         if (role != 0) {
-            ensure_mirrored_atlas(*cel, asset->bytes.data(), role);
+            ensure_mirrored_atlas(*cel, cel->source_pixels, role);
             out.pixels = cel->enhanced_pixels.data();
             out.width = cel->enhanced_w;
             out.height = cel->enhanced_h;

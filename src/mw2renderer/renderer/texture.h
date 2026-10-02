@@ -8,6 +8,7 @@ enum { MW2ER_MAX_DESC = 512 };
 
 struct Mw2erResolvedTexture {
     int valid;
+    bool unsupported;
     int width;
     int height;
     int wrap;
@@ -17,6 +18,7 @@ struct Mw2erResolvedTexture {
     float fog_terminal[3];
     float s8_ratio[3];
     const uint8_t *pixels;
+    const uint8_t *source_pixels; // Immutable provider body identity within this generation.
     int resource_id;
     int animated_effect;
     int enhancement_role_id; /* 0 none, 1 camo, 2 cruise */
@@ -26,7 +28,6 @@ struct Mw2erResolvedTexture {
 void mw2er_texture_free_cache(void);
 // Share one palette/remap revision across all descriptors captured this frame.
 void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb);
-bool mw2er_texture_remap_ready(void);
 int mw2er_texture_resolve(
     const Mem &mem,
     int desc_idx,
