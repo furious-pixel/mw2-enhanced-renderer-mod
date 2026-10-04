@@ -33,7 +33,6 @@ enum {
     TEXTURE_CELL_SUB_ENTRY_COUNT = 32,
     COMPONENT_DESCRIPTOR_STRIDE = 0x44,
     MAX_COMPONENT_DESCRIPTORS = 4096,
-    MIN_READY_TEXTURE_PAGES = 8,
     DUMMY_RESOURCE_ID = 0x07B1,
     MAX_TEXTURE_DIMENSION = 1024,
     MAX_TEXTURE_BYTES = 1024 * 1024,
@@ -55,6 +54,7 @@ struct PendingResource {
 static uint64_t g_generation;
 static int g_textures_discovered;
 static int g_poly_discovered;
+static bool g_discovery_failed;
 static int g_completion_logged;
 static int g_resource_wait_state;
 static uint32_t g_retained_count;
@@ -69,12 +69,12 @@ static size_t g_pending_head;
 struct PrjResources {
     std::string path;
     std::string identity;
-    Mw2erPrjArchive archive;
     std::vector<Mw2erResourceAsset> assets;
-    Mw2erPrjResult result;
+    Mw2erPrjResult open_result;
+    Mw2erPrjResult first_failure;
+    uint32_t failed = 0;
     std::atomic<bool> cancel{false};
     std::atomic<bool> done{false};
-    std::atomic<uint32_t> pending{1};
     std::thread worker;
     uint64_t bytes = 0;
     double elapsed_ms = 0;
@@ -108,45 +108,44 @@ static void load_prj(PrjResources &prj)
 {
     const auto start = std::chrono::steady_clock::now();
     try {
-        prj.result = prj.archive.open(prj.path.c_str());
-        if (prj.result.status == Mw2erPrjStatus::Found) {
-            const auto &keys = prj.archive.occupied_keys();
+        Mw2erPrjArchive archive;
+        prj.open_result = archive.open(prj.path.c_str());
+        if (prj.open_result.status == Mw2erPrjStatus::Found) {
+            const auto &keys = archive.occupied_keys();
             prj.assets.reserve(keys.size());
-            prj.pending.store((uint32_t)keys.size() + 1, std::memory_order_relaxed);
             for (const auto &key : keys) {
                 if (prj.cancel.load(std::memory_order_relaxed)) return;
                 if (key.type == MW2ER_RESOURCE_CEL || key.type == MW2ER_RESOURCE_POLY ||
                     key.type == MW2ER_RESOURCE_LUMA) {
                     Mw2erResourceAsset asset = {};
-                    prj.result = prj.archive.lookup(key.type, key.resource_id, asset);
-                    if (prj.result.status != Mw2erPrjStatus::Found) break;
-                    // Bounded independently of metadata and per-resource limits.
-                    if (asset.bytes.size() > 64u * 1024u * 1024u - prj.bytes) {
-                        prj.result = {Mw2erPrjStatus::Corrupt, "cache", key.type,
-                            key.resource_id, "source cache exceeds 64 MiB budget"};
-                        break;
+                    const auto loaded = archive.lookup(key.type, key.resource_id, asset);
+                    if (loaded.status != Mw2erPrjStatus::Found) {
+                        if (!prj.failed++) prj.first_failure = loaded;
+                        continue;
                     }
                     prj.bytes += asset.bytes.size();
                     prj.assets.push_back(std::move(asset));
                 }
-                prj.pending.fetch_sub(1, std::memory_order_relaxed);
             }
-            if (prj.result.status == Mw2erPrjStatus::Found)
-                std::sort(prj.assets.begin(), prj.assets.end(), asset_less);
         }
     } catch (...) {
-        prj.result = {Mw2erPrjStatus::IoError, "cache", 0, 0,
+        const Mw2erPrjResult failure = {Mw2erPrjStatus::IoError, "cache", 0, 0,
             "background resource allocation failed"};
+        if (prj.open_result.status != Mw2erPrjStatus::Found) prj.open_result = failure;
+        if (!prj.failed++) prj.first_failure = failure;
     }
+    // The worker-local reader and index are gone before cache publication.
+    // A failed record or interrupted load does not discard earlier successes.
+    std::sort(prj.assets.begin(), prj.assets.end(), asset_less);
     prj.elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - start).count();
     prj.done.store(true, std::memory_order_release);
 }
 
-static bool prj_ready()
+static bool prj_cache_available()
 {
     return g_prj && g_prj->done.load(std::memory_order_acquire) &&
-        g_prj->result.status == Mw2erPrjStatus::Found;
+        g_prj->open_result.status == Mw2erPrjStatus::Found;
 }
 
 static void log_prj_failure(const char *detail)
@@ -158,36 +157,40 @@ static void log_prj_failure(const char *detail)
     mw2er_log("************************************************************");
 }
 
-static int32_t prj_progress()
+static void log_prj_result()
 {
-    if (!g_prj) return MW2ER_OK;
-    if (!g_prj->done.load(std::memory_order_acquire)) return MW2ER_ERR_NOT_READY;
+    if (!g_prj || !g_prj->done.load(std::memory_order_acquire) || g_prj->logged) return;
+    g_prj->logged = true;
     char message[512];
-    if (g_prj->result.status != Mw2erPrjStatus::Found) {
-        const auto &r = g_prj->result;
+    if (g_prj->open_result.status != Mw2erPrjStatus::Found) {
+        const auto &r = g_prj->open_result;
         snprintf(message, sizeof(message),
             "mw2renderer: PRJ %s at %s type=%u id=%u: %s (OS error %u)",
             mw2er_prj_status_name(r.status), r.stage, r.type, r.resource_id,
             r.detail, r.system_error);
         log_prj_failure(message);
-        // The worker has completed and no partial cache was published. Join
-        // before releasing it; subsequent requests use the ordinary guest path.
-        g_prj.reset();
-        return MW2ER_OK;
+        return;
     }
-    if (!g_prj->logged) {
-        size_t cels = 0, polys = 0;
+    {
+        size_t cels = 0, polys = 0, lumas = 0;
         for (const auto &asset : g_prj->assets) {
             cels += asset.type == MW2ER_RESOURCE_CEL;
             polys += asset.type == MW2ER_RESOURCE_POLY;
+            lumas += asset.type == MW2ER_RESOURCE_LUMA;
         }
         snprintf(message, sizeof(message),
-            "mw2renderer: PRJ ready (%zu CEL, %zu POLY, %llu CPU bytes, %.1f ms)",
-            cels, polys, (unsigned long long)g_prj->bytes, g_prj->elapsed_ms);
+            "mw2renderer: PRJ cache loaded (%zu CEL, %zu POLY, %zu LUMA, %u unavailable, %llu CPU bytes, %.1f ms)",
+            cels, polys, lumas, g_prj->failed, (unsigned long long)g_prj->bytes, g_prj->elapsed_ms);
         mw2er_log(message);
-        g_prj->logged = true;
     }
-    return MW2ER_OK;
+    if (g_prj->failed) {
+        const auto &r = g_prj->first_failure;
+        snprintf(message, sizeof(message),
+            "mw2renderer: PRJ first skipped resource: %s at %s type=%u id=%u: %s (OS error %u)",
+            mw2er_prj_status_name(r.status), r.stage, r.type, r.resource_id,
+            r.detail, r.system_error);
+        mw2er_log(message);
+    }
 }
 
 static std::vector<Mw2erResourceAsset>::iterator asset_position(uint64_t key)
@@ -224,7 +227,8 @@ static bool queue_resource(uint32_t type, int32_t resource_id)
     try {
         g_pending.push_back(item);
     } catch (...) {
-        mw2er_set_error("resource discovery: queue allocation failed");
+        g_discovery_failed = true;
+        mw2er_log("mw2renderer: resource discovery queue allocation failed; continuing with available resources");
         return false;
     }
     g_completion_logged = 0;
@@ -355,6 +359,10 @@ static int copy_resource(
 
 void mw2er_resources_open(const Mw2erSessionInfo &session)
 {
+    // Fallback source bytes belong to this executable session, not a mission.
+    // Guest addresses and discovery queues still reset at each mission boundary.
+    mw2er_resources_end();
+    g_assets.clear();
     if (!mw2er_config().load_resources_from_prj) {
         g_prj.reset();
         mw2er_log("mw2renderer: PRJ loading disabled; using guest-memory resource loading");
@@ -374,19 +382,18 @@ void mw2er_resources_open(const Mw2erSessionInfo &session)
         }
         const std::string filename = path.lexically_normal().u8string();
         const std::string identity = session.archive_identity ? session.archive_identity : "";
-        // A successfully opened file denies writes/replacement. Its immutable
-        // source bytes can therefore span mission and executable generations.
-        if (g_prj && g_prj->path == filename && g_prj->identity == identity &&
-            (!g_prj->done.load(std::memory_order_acquire) || prj_ready())) return;
+        // A source is loaded once per renderer lifetime. Reuse owned bytes (or
+        // a failed attempt) across missions without reopening the file.
+        if (g_prj && g_prj->path == filename && g_prj->identity == identity) return;
         g_prj.reset(); // Cancels and joins before replacing the archive owner.
         g_prj = std::make_unique<PrjResources>();
         g_prj->path = filename;
         g_prj->identity = identity;
         if (path.empty() || !path.is_absolute()) {
-            g_prj->result = {Mw2erPrjStatus::IoError, "path", 0, 0,
+            g_prj->open_result = {Mw2erPrjStatus::IoError, "path", 0, 0,
                 "host did not observe an absolute MW2.EXE path"};
             g_prj->done.store(true, std::memory_order_release);
-            prj_progress();
+            log_prj_result();
             return;
         }
         g_prj->worker = std::thread(load_prj, std::ref(*g_prj));
@@ -406,6 +413,7 @@ void mw2er_resources_open(const Mw2erSessionInfo &session)
 void mw2er_resources_shutdown(void)
 {
     mw2er_resources_end();
+    g_assets.clear();
     g_prj.reset();
 }
 
@@ -414,11 +422,11 @@ void mw2er_resources_begin(uint64_t generation)
     g_generation = generation;
     g_textures_discovered = 0;
     g_poly_discovered = 0;
+    g_discovery_failed = false;
     g_completion_logged = 0;
     g_resource_wait_state = -1;
     g_retained_count = 0;
     g_failed_count = 0;
-    g_assets.clear();
     g_pending.clear();
     g_pending_head = 0;
 }
@@ -428,16 +436,16 @@ void mw2er_resources_end(void)
     g_generation = 0;
     g_textures_discovered = 0;
     g_poly_discovered = 0;
+    g_discovery_failed = false;
     g_completion_logged = 0;
     g_resource_wait_state = -1;
     g_retained_count = 0;
     g_failed_count = 0;
-    g_assets.clear();
     g_pending.clear();
     g_pending_head = 0;
 }
 
-static void maybe_log_preload_complete(void)
+static void maybe_log_discovery_complete(void)
 {
     if (g_completion_logged || pending_count() != 0 || !g_textures_discovered) {
         return;
@@ -446,35 +454,28 @@ static void maybe_log_preload_complete(void)
     snprintf(
         message,
         sizeof(message),
-        "mw2renderer: resource preload complete (%u retained, %u unavailable)",
+        "mw2renderer: resource fallback complete (%u retained, %u unavailable)",
         g_retained_count,
         g_failed_count);
     mw2er_log(message);
     g_completion_logged = 1;
 }
 
-int32_t mw2er_resources_discover(const Mw2erMemoryView &memory)
+void mw2er_resources_discover(const Mw2erMemoryView &memory)
 {
-    if (g_generation != 0 && g_prj) {
-        prj_progress();
-        if (g_prj) {
-            // Pending archive I/O must not prevent a coherent resident capture.
-            // Keep proactive guest acquisition deferred to the existing service.
-            return MW2ER_OK;
-        }
-        // An unavailable archive switches the whole source provider. Discover
-        // guest resources normally instead of marking the preload complete.
-    }
-    if (g_generation == 0 || (g_textures_discovered && g_poly_discovered)) {
-        return MW2ER_OK;
-    }
+    if (g_generation == 0) return;
+    log_prj_result();
+    // Give bulk loading the first opportunity to populate the source cache.
+    // This defers slow guest requests, never scene capture or presentation.
+    if (g_prj && !g_prj->done.load(std::memory_order_acquire)) return;
+    if (g_discovery_failed || (g_textures_discovered && g_poly_discovered)) return;
     const Mem mem = Mem::from(memory);
     if (!g_textures_discovered) {
         uint8_t pages[TEXTURE_DESCRIPTOR_COUNT];
         const int initialized = texture_tables_initialized(mem);
         const int page_count = texture_page_count(mem, pages);
         int cel_requests = -1;
-        if (initialized && page_count >= MIN_READY_TEXTURE_PAGES) {
+        if (initialized && page_count > 0) {
             cel_requests = 0;
             for (int page = 0; page < TEXTURE_DESCRIPTOR_COUNT; ++page) {
                 if (!pages[page]) {
@@ -488,7 +489,7 @@ int32_t mw2er_resources_discover(const Mw2erMemoryView &memory)
                     if (resource_id > 0 && resource_id != DUMMY_RESOURCE_ID) {
                         ++cel_requests;
                         if (!queue_resource(MW2ER_RESOURCE_CEL, resource_id)) {
-                            return MW2ER_ERR_GENERIC;
+                            return;
                         }
                     }
                 }
@@ -499,14 +500,14 @@ int32_t mw2er_resources_discover(const Mw2erMemoryView &memory)
                 snprintf(
                     message,
                     sizeof(message),
-                    "mw2renderer: resource preload queued (%u pending)",
+                    "mw2renderer: resource fallback queued (%u pending)",
                     (uint32_t)pending_count());
                 mw2er_log(message);
             }
         }
         if (!g_textures_discovered) {
             const int state = (initialized ? 1 : 0) |
-                (page_count >= MIN_READY_TEXTURE_PAGES ? 2 : 0);
+                (page_count > 0 ? 2 : 0);
             if (state != g_resource_wait_state) {
                 char message[160];
                 snprintf(
@@ -532,32 +533,19 @@ int32_t mw2er_resources_discover(const Mw2erMemoryView &memory)
                 if (!queue_resource(
                     MW2ER_RESOURCE_POLY,
                     mem.i32_rel(base + 0x08 + (uint32_t)detail * 4))) {
-                    return MW2ER_ERR_GENERIC;
+                    return;
                 }
             }
         }
         g_poly_discovered = 1;
     }
-    maybe_log_preload_complete();
-    return MW2ER_OK;
+    maybe_log_discovery_complete();
 }
 
 uint32_t mw2er_resources_pending(uint64_t generation)
 {
     if (!generation || generation != g_generation) return 0;
-    if (g_prj) {
-        if (prj_ready()) return 0;
-        // Keep scheduling until progress either publishes PRJ or selects guest.
-        return std::max(1u, g_prj->pending.load(std::memory_order_relaxed));
-    }
     return (uint32_t)pending_count();
-}
-
-int mw2er_resources_textures_discovered(void)
-{
-    if (g_prj)
-        return g_generation != 0 && prj_ready();
-    return g_generation != 0 && g_textures_discovered;
 }
 
 int32_t mw2er_resources_service(
@@ -570,13 +558,6 @@ int32_t mw2er_resources_service(
         progress->failed = 0;
         progress->pending = mw2er_resources_pending(g_generation);
     }
-    if (g_generation != 0 && g_prj) {
-        const int32_t result = prj_progress();
-        if (g_prj) return result;
-        if (progress != NULL && progress->struct_size >= sizeof(*progress))
-            progress->pending = (uint32_t)pending_count();
-        // PRJ failure resumes the same validated guest service below.
-    }
     if (g_generation == 0 || service == NULL ||
         service->struct_size < sizeof(*service) || service->max_resources == 0 ||
         service->acquire == NULL || service->release == NULL ||
@@ -584,13 +565,7 @@ int32_t mw2er_resources_service(
         mw2er_set_error("service_resources: invalid service");
         return MW2ER_ERR_INVALID_ARGUMENT;
     }
-    const int32_t discovered = mw2er_resources_discover(service->memory);
-    if (discovered != MW2ER_OK) {
-        if (progress != NULL && progress->struct_size >= sizeof(*progress)) {
-            progress->pending = (uint32_t)pending_count();
-        }
-        return discovered;
-    }
+    mw2er_resources_discover(service->memory);
     const Mem mem = Mem::from(service->memory);
     uint32_t processed = 0;
     const size_t available = pending_count();
@@ -599,6 +574,11 @@ int32_t mw2er_resources_service(
         : (uint32_t)available;
     while (processed < batch && g_pending_head < g_pending.size()) {
         PendingResource &item = g_pending[g_pending_head];
+        if (mw2er_resource_find(item.type, item.resource_id)) {
+            ++g_pending_head;
+            ++processed;
+            continue;
+        }
         Mw2erResourceKey key = {};
         key.struct_size = sizeof(key);
         key.type = item.type;
@@ -658,7 +638,7 @@ int32_t mw2er_resources_service(
         progress->processed = processed;
         progress->pending = (uint32_t)pending_count();
     }
-    maybe_log_preload_complete();
+    maybe_log_discovery_complete();
     return MW2ER_OK;
 }
 
@@ -666,7 +646,7 @@ const Mw2erResourceAsset *mw2er_resource_find(uint32_t type, uint32_t resource_i
 {
     const uint64_t key = asset_key(type, resource_id);
     if (!g_generation) return NULL;
-    if (prj_ready()) {
+    if (prj_cache_available()) {
         const auto &assets = g_prj->assets;
         const auto it = std::lower_bound(assets.begin(), assets.end(), key,
             [](const Mw2erResourceAsset &asset, uint64_t value) {
@@ -686,7 +666,7 @@ const Mw2erResourceAsset *mw2er_resource_find(uint32_t type, uint32_t resource_i
 int mw2er_resources_have_type(uint32_t type)
 {
     if (!g_generation) return 0;
-    if (prj_ready()) {
+    if (prj_cache_available()) {
         const auto &assets = g_prj->assets;
         const auto it = std::lower_bound(assets.begin(), assets.end(), asset_key(type, 0),
             [](const Mw2erResourceAsset &asset, uint64_t value) {
@@ -696,11 +676,6 @@ int mw2er_resources_have_type(uint32_t type)
     }
     const auto it = asset_position(asset_key(type, 0));
     return it != g_assets.end() && it->type == type;
-}
-
-int mw2er_resources_allow_guest_fallback(void)
-{
-    return g_generation != 0;
 }
 
 Mw2erLumaLookup mw2er_resource_copy_resident_luma(
@@ -751,7 +726,7 @@ int mw2er_resource_retain_cel(
     const uint8_t *pixels,
     uint32_t size)
 {
-    if (!mw2er_resources_allow_guest_fallback() ||
+    if (!g_generation ||
         width == 0 || height == 0 || pixels == NULL ||
         size != (uint32_t)width * (uint32_t)height) {
         return 0;
@@ -779,7 +754,7 @@ int mw2er_resource_retain_poly(
     const uint8_t *bytes,
     uint32_t size)
 {
-    if (!mw2er_resources_allow_guest_fallback() ||
+    if (!g_generation ||
         bytes == NULL || size < WTBO_HEADER_SIZE ||
         size > MAX_POLY_PAYLOAD || memcmp(bytes, "WTBO", 4) != 0) {
         return 0;

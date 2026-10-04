@@ -44,13 +44,13 @@ struct Mw2erLoadingVisual {
 };
 
 enum Mw2erPresentationKind {
-    MW2ER_PRESENT_NOT_READY = 0,
+    MW2ER_PRESENT_NO_OUTPUT = 0,
     MW2ER_PRESENT_SCENE = 1,
     MW2ER_PRESENT_LOADING = 2,
 };
 
 struct Mw2erPresentation {
-    Mw2erPresentationKind kind = MW2ER_PRESENT_NOT_READY;
+    Mw2erPresentationKind kind = MW2ER_PRESENT_NO_OUTPUT;
     float loading_brightness = 0.0f;
     int32_t strip_index = -1;
     float fade = 0.0f;
@@ -63,8 +63,7 @@ struct Mw2erPresentation {
 
 void mw2er_presentation_reset(void);
 int32_t mw2er_presentation_capture(const Mw2erCaptureInput *input);
-void mw2er_presentation_published(uint32_t resources_pending);
 Mw2erPresentation mw2er_presentation_get(
-    double time_seconds, int32_t view_mode, bool scene_available, uint32_t resources_pending);
+    double time_seconds, int32_t view_mode, bool scene_available);
 
 #endif

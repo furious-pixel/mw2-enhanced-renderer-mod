@@ -884,16 +884,12 @@ static int read_camera(const Mem &mem, Mw2erCamera &cam)
 
 static void emit_billboard(
     Mw2erGeomPartition &g,
-    const Mem &mem,
     int desc,
     const int64_t a[3],
     const int64_t b[3],
     float flags)
 {
     if (desc < 0 || desc >= MW2ER_MAX_DESC) {
-        return;
-    }
-    if (!mw2er_desc_draw_allowed(mem, desc)) {
         return;
     }
     float ax = (float)(emitted_fixed(a, 0) / k_fixed_scale);
@@ -2423,7 +2419,6 @@ static int extract_block(ExtractCtx &ctx, uint32_t flags, uint32_t entity_ref, u
             }
             emit_billboard(
                 *ctx.part,
-                *ctx.mem,
                 desc,
                 world[anchor],
                 world[other],

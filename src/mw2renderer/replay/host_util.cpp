@@ -209,11 +209,6 @@ int32_t mw2er_host_frame(const Mw2erApi *api, const Mw2erMemoryView *mem,
     published.struct_size = sizeof(published);
     result = api->publish_frame(&published);
     if (result != MW2ER_OK) return result;
-    if (!(published.coverage & MW2ER_COVERAGE_SCENE)) {
-        fprintf(stderr, "Replay lacks required texture material data or uses an unsupported remap. "
-                        "Supply the selected resident LUMA and CEL resources in the capture.\n");
-        return MW2ER_ERR_NOT_READY;
-    }
     if (!composite) return MW2ER_OK;
     Mw2erPresentInfo present = {};
     present.struct_size = sizeof(present);

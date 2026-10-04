@@ -33,7 +33,7 @@ struct Mw2erGlState {
     int staging;
     int published;
     int published_valid;
-    uint32_t staging_complete;
+    uint32_t staging_submitted_layers;
     uint32_t staging_overlay_present;
     uint32_t published_overlay_present;
     uint64_t published_context;
@@ -60,7 +60,7 @@ static GlProgram g_composite_program;
 static GlProgram g_sprite_program;
 static GlProgram g_satellite_damage_program;
 
-enum { MW2ER_LAYER_COMPLETE = MW2ER_LAYER_SCENE | MW2ER_LAYER_OVERLAY };
+enum { MW2ER_OUTPUT_LAYERS = MW2ER_LAYER_SCENE | MW2ER_LAYER_OVERLAY };
 
 static Mw2erGlProc load_host_gl(const char *name)
 {
@@ -311,8 +311,7 @@ static int32_t create_all_targets(int32_t logical_w, int32_t logical_h)
     g_gl.staging = 0;
     g_gl.published = 0;
     g_gl.published_valid = 0;
-    g_gl.staging_complete = 0;
-    g_gl.staging_overlay_present = 0;
+    mw2er_gl_discard_staging();
     return MW2ER_OK;
 }
 
@@ -366,10 +365,16 @@ void mw2er_gl_shutdown(void)
     memset(&g_gl, 0, sizeof(g_gl));
 }
 
+void mw2er_gl_discard_staging(void)
+{
+    g_gl.staging_submitted_layers = 0;
+    g_gl.staging_overlay_present = 0;
+}
+
 void mw2er_gl_invalidate_publication(void)
 {
     g_gl.published_valid = 0;
-    g_gl.staging_complete = 0;
+    mw2er_gl_discard_staging();
 }
 
 int32_t mw2er_gl_ensure_size(int32_t width, int32_t height)
@@ -390,8 +395,7 @@ int32_t mw2er_gl_begin_frame(void)
         mw2er_set_error("GL not ready");
         return MW2ER_ERR_NOT_READY;
     }
-    g_gl.staging_complete = 0;
-    g_gl.staging_overlay_present = 0;
+    mw2er_gl_discard_staging();
     return MW2ER_OK;
 }
 
@@ -499,7 +503,7 @@ int32_t mw2er_gl_render_scene(void)
         }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    g_gl.staging_complete |= MW2ER_LAYER_SCENE;
+    g_gl.staging_submitted_layers |= MW2ER_LAYER_SCENE;
     return MW2ER_OK;
 }
 
@@ -515,7 +519,7 @@ int32_t mw2er_gl_render_hud(void)
         return MW2ER_ERR_GL;
     }
     g_gl.staging_overlay_present = 1;
-    g_gl.staging_complete |= MW2ER_LAYER_OVERLAY;
+    g_gl.staging_submitted_layers |= MW2ER_LAYER_OVERLAY;
     return MW2ER_OK;
 }
 
@@ -525,8 +529,10 @@ int32_t mw2er_gl_publish(void)
         mw2er_set_error("GL not ready");
         return MW2ER_ERR_NOT_READY;
     }
-    if (g_gl.staging_complete != MW2ER_LAYER_COMPLETE) {
-        mw2er_set_error("publish: incomplete frame");
+    // Both output passes must have been submitted in this context. They may
+    // omit unavailable draws; GL ordering makes an explicit GPU wait unnecessary.
+    if (g_gl.staging_submitted_layers != MW2ER_OUTPUT_LAYERS) {
+        mw2er_set_error("publish: scene or overlay pass not submitted");
         return MW2ER_ERR_NOT_READY;
     }
     g_gl.published = g_gl.staging;
@@ -534,7 +540,7 @@ int32_t mw2er_gl_publish(void)
     g_gl.published_overlay_present = g_gl.staging_overlay_present;
     g_gl.published_context = g_gl.context_generation;
     g_gl.staging = 1 - g_gl.staging;
-    g_gl.staging_complete = 0;
+    g_gl.staging_submitted_layers = 0;
     return MW2ER_OK;
 }
 
@@ -708,6 +714,13 @@ static int32_t composite_loading(const Mw2erViewport *vp, const Mw2erPresentatio
     return MW2ER_OK;
 }
 
+bool mw2er_gl_scene_available(const Mw2erViewport &vp)
+{
+    return g_gl.ready && g_gl.published_valid &&
+        g_gl.published_context == vp.context_generation &&
+        g_gl.logical_w == vp.mod_w && g_gl.logical_h == vp.mod_h;
+}
+
 int32_t mw2er_gl_composite(const Mw2erViewport *vp, const Mw2erPresentation *presentation)
 {
     Mw2erColorTarget *scene;
@@ -737,7 +750,7 @@ int32_t mw2er_gl_composite(const Mw2erViewport *vp, const Mw2erPresentation *pre
         mw2er_set_error("composite: empty viewport");
         return MW2ER_ERR_INVALID_ARGUMENT;
     }
-    if (presentation == NULL || presentation->kind == MW2ER_PRESENT_NOT_READY) {
+    if (presentation == NULL || presentation->kind == MW2ER_PRESENT_NO_OUTPUT) {
         mw2er_set_error("composite: no presentable frame");
         return MW2ER_ERR_NOT_READY;
     }
@@ -746,8 +759,7 @@ int32_t mw2er_gl_composite(const Mw2erViewport *vp, const Mw2erPresentation *pre
         restore_host_baseline(vp);
         return result;
     }
-    if (!g_gl.published_valid || g_gl.published_context != vp->context_generation ||
-        g_gl.logical_w != vp->mod_w || g_gl.logical_h != vp->mod_h) {
+    if (!mw2er_gl_scene_available(*vp)) {
         mw2er_set_error("composite: stale publication");
         return MW2ER_ERR_NOT_READY;
     }

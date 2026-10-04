@@ -122,8 +122,6 @@ Mw2erPrjResult validate_body(Mw2erResourceAsset &asset,
             if (le16(body.data() + position + 4 + size_t(corner) * 2) >= vertices)
                 return result(Mw2erPrjStatus::Corrupt, "WTBO", "vertex index out of range", type, id);
         }
-        if (corners > 16)
-            return result(Mw2erPrjStatus::Unsupported, "WTBO", "face interpretation exceeds 16 corners", type, id);
         if (corners < 3) kind = Mw2erPrjMeshKind::PointOrLine;
         position += stride;
     }
@@ -329,12 +327,10 @@ Mw2erPrjResult Mw2erPrjArchive::parse_index()
         for (uint32_t id = 0; id < capacity; ++id) {
             const uint8_t *slot_bytes = index.data() + 22 + size_t(id) * 8;
             Slot slot{le32(slot_bytes), le32(slot_bytes + 4)};
-            if ((!slot.offset) != (!slot.size) ||
-                (slot.offset && (slot.size < DATA_HEADER_BYTES ||
-                                 !bounded(slot.offset, slot.size, file_size_))))
-                return result(Mw2erPrjStatus::Corrupt, "INDX", "invalid DATA slot range", type, id);
             decoded.slots[id] = slot;
-            if (slot.offset) keys_.push_back({type, id});
+            // Individual DATA ranges are checked during lookup so a bad record
+            // does not prevent loading the rest of an otherwise valid index.
+            if (slot.offset || slot.size) keys_.push_back({type, id});
         }
         directories_.push_back(std::move(decoded));
         // SYMB is optional metadata. No name-based consumer exists here, so
@@ -360,10 +356,13 @@ Mw2erPrjResult Mw2erPrjArchive::lookup(
         return result(Mw2erPrjStatus::Unsupported, "lookup", "resource type is not implemented", type, resource_id);
     const auto directory = std::find_if(directories_.begin(), directories_.end(),
         [type](const Directory &candidate) { return candidate.type == type; });
-    if (directory == directories_.end() || resource_id >= directory->slots.size() ||
-        !directory->slots[resource_id].offset)
+    if (directory == directories_.end() || resource_id >= directory->slots.size())
         return result(Mw2erPrjStatus::NotFound, "lookup", "unoccupied numeric slot", type, resource_id);
     const Slot slot = directory->slots[resource_id];
+    if (!slot.offset && !slot.size)
+        return result(Mw2erPrjStatus::NotFound, "lookup", "unoccupied numeric slot", type, resource_id);
+    if (!slot.offset || slot.size < DATA_HEADER_BYTES || !bounded(slot.offset, slot.size, file_size_))
+        return result(Mw2erPrjStatus::Corrupt, "DATA", "invalid DATA slot range", type, resource_id);
     if (slot.size - DATA_HEADER_BYTES > MAX_RESOURCE_BYTES)
         return result(Mw2erPrjStatus::Corrupt, "DATA", "resource exceeds allocation budget", type, resource_id);
     uint8_t header[DATA_HEADER_BYTES];

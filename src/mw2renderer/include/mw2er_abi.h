@@ -174,7 +174,9 @@ typedef struct Mw2erRenderRequest {
 
 typedef struct Mw2erPublishResult {
     uint32_t struct_size;
+    /* Usable replacement output, not complete asset or draw coverage. */
     uint32_t coverage;
+    /* Render passes submitted in GL order; no CPU/GPU completion wait. */
     uint32_t completed_layers;
     uint32_t reserved;
     uint64_t publication_id;
@@ -274,13 +276,18 @@ typedef struct Mw2erApi {
     int32_t (*begin_mission)(const Mw2erMissionInfo *mission);
     void (*end_mission)(uint64_t mission_generation);
     int32_t (*capture)(const Mw2erCaptureInput *input);
+    /* Historical ABI name: accepts the current capture's frame identity.
+     * Does not certify asset completeness or renderability of every draw.
+     * Missing inputs omit dependent draws; they never veto frame progress. */
     int32_t (*seal_frame)(uint64_t frame);
     int32_t (*render_frame)(const Mw2erRenderRequest *request);
     int32_t (*publish_frame)(Mw2erPublishResult *result);
     int32_t (*composite_frame)(
         const Mw2erPresentInfo *present,
         Mw2erPresentResult *result);
-    /* Optional ABI v3+ tail. Called only at a host-controlled guest safe point. */
+    /* Optional ABI v3+ tail. Pending counts schedule fallback acquisition,
+     * never gate capture, publication, or presentation. Service is called
+     * only at a host-controlled guest safe point. */
     uint32_t (*resources_pending)(uint64_t resource_generation);
     int32_t (*service_resources)(
         const Mw2erResourceService *service,

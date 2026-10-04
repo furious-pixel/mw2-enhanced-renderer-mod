@@ -17,14 +17,11 @@ struct Mw2erProcessState {
     int inited;
     int session;
     int mission;
-    int frame_build;
-    int frame_sealed;
-    bool sealed_materials_ready;
-    bool published_materials_ready;
+    int capture_available;
+    int capture_accepted;
     uint64_t session_generation;
     uint64_t mission_generation;
     uint64_t resource_generation;
-    uint64_t sealed_frame;
     uint64_t publication_id;
     void (*log)(const char *msg);
     void *(*get_gl_proc_address)(const char *name);
@@ -171,10 +168,8 @@ static void api_shutdown(void) noexcept
 
 static void reset_frame_transaction(void) noexcept
 {
-    g_state.frame_build = 0;
-    g_state.frame_sealed = 0;
-    g_state.sealed_frame = 0;
-    g_state.sealed_materials_ready = false;
+    g_state.capture_available = 0;
+    g_state.capture_accepted = 0;
     memset(&g_state.mem, 0, sizeof(g_state.mem));
     memset(&g_state.frame, 0, sizeof(g_state.frame));
 }
@@ -216,7 +211,6 @@ static int32_t api_begin_session(const Mw2erSessionInfo *session)
         session->archive_identity);
     mw2er_resources_open(*session);
     reset_frame_transaction();
-    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
     return MW2ER_OK;
 }
@@ -238,7 +232,6 @@ static void api_end_session(uint64_t session_generation) noexcept
     g_state.mission_generation = 0;
     g_state.resource_generation = 0;
     reset_frame_transaction();
-    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
 }
 
@@ -268,7 +261,6 @@ static int32_t api_begin_mission(const Mw2erMissionInfo *mission)
     mw2er_scene_mission_reset();
     mw2er_hud_mission_reset();
     mw2er_resources_begin(g_state.resource_generation);
-    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
     mw2er_log("mw2renderer: mission_begin");
     return MW2ER_OK;
@@ -289,7 +281,6 @@ static void api_end_mission(uint64_t mission_generation) noexcept
     mw2er_presentation_reset();
     mw2er_scene_mission_reset();
     mw2er_hud_mission_reset();
-    g_state.published_materials_ready = false;
     mw2er_gl_invalidate_publication();
 }
 
@@ -311,7 +302,6 @@ static int32_t api_on_gl_context(const Mw2erViewport *vp)
 static void api_on_gl_context_lost(void) noexcept
 {
     mw2er_gl_shutdown();
-    g_state.published_materials_ready = false;
 }
 
 static int32_t api_mission_begin(const Mw2erMemoryView *mem)
@@ -380,7 +370,6 @@ static int32_t api_capture(const Mw2erCaptureInput *input)
         g_state.publication_id = 0;
         mw2er_scene_mission_reset(true);
         mw2er_resources_begin(g_state.resource_generation);
-        g_state.published_materials_ready = false;
         mw2er_gl_invalidate_publication();
         mw2er_hud_mission_reset();
     }
@@ -396,58 +385,61 @@ static int32_t api_capture(const Mw2erCaptureInput *input)
     if (input->event == MW2ER_EVENT_LATE) {
         mw2er_hud_capture_late(input->memory);
         mw2er_menu_capture_late(input->memory);
-        return mw2er_resources_discover(input->memory);
+        mw2er_resources_discover(input->memory);
+        return MW2ER_OK;
     }
     if (input->event != MW2ER_EVENT_PRIMARY) {
         if (input->event == MW2ER_EVENT_LOADING_END)
-            return mw2er_resources_discover(input->memory);
+            mw2er_resources_discover(input->memory);
         return MW2ER_OK;
     }
+    // Superseding a capture also discards its unpublished render passes. Keep
+    // the last published output available until this capture has been rendered.
+    reset_frame_transaction();
+    mw2er_gl_discard_staging();
     g_state.mem = input->memory;
     g_state.vp = input->viewport;
     g_state.frame = input->frame;
     const Mw2erRenderView primary_view = mw2er_primary_render_view(input->memory);
     mw2er_hud_capture_primary(input->memory, input->frame.time_seconds, primary_view);
     mw2er_menu_capture_primary(input->memory);
-    int32_t result = mw2er_resources_discover(input->memory);
-    if (result == MW2ER_OK)
-        result = mw2er_scene_capture(primary_view);
+    mw2er_resources_discover(input->memory);
+    const int32_t result = mw2er_scene_capture(primary_view);
     memset(&g_state.mem, 0, sizeof(g_state.mem));
     if (result != MW2ER_OK) {
-        g_state.frame_build = 0;
-        g_state.frame_sealed = 0;
+        g_state.capture_available = 0;
+        g_state.capture_accepted = 0;
         return result;
     }
-    g_state.frame_build = 1;
-    g_state.frame_sealed = 0;
-    g_state.sealed_frame = 0;
+    g_state.capture_available = 1;
+    g_state.capture_accepted = 0;
     return MW2ER_OK;
 }
 
-static int32_t api_seal_frame(uint64_t frame)
+// The historical seal_frame ABI slot accepts a capture, not an asset-completeness
+// promise. Rendering decides eligibility per draw; publication checks output.
+static int32_t api_accept_capture(uint64_t frame)
 {
-    if (!g_state.mission || !g_state.frame_build ||
+    if (!g_state.mission || !g_state.capture_available ||
         frame != g_state.frame.frame) {
-        mw2er_set_error("seal_frame: incomplete or mismatched frame");
+        mw2er_set_error("accept_capture: no capture or mismatched frame");
         return MW2ER_ERR_NOT_READY;
     }
-    g_state.sealed_materials_ready = mw2er_scene_materials_ready();
-    g_state.frame_sealed = 1;
-    g_state.sealed_frame = frame;
+    g_state.capture_accepted = 1;
     return MW2ER_OK;
 }
 
 static int32_t api_render_frame(const Mw2erRenderRequest *request)
 {
-    if (!g_state.mission || !g_state.frame_sealed) {
-        mw2er_set_error("render_frame before seal");
+    if (!g_state.mission || !g_state.capture_accepted) {
+        mw2er_set_error("render_frame before capture acceptance");
         return MW2ER_ERR_NOT_READY;
     }
     if (request == NULL || request->struct_size < sizeof(Mw2erRenderRequest) ||
         request->session_generation != g_state.session_generation ||
         request->mission_generation != g_state.mission_generation ||
         request->resource_generation != g_state.resource_generation ||
-        request->frame != g_state.sealed_frame ||
+        request->frame != g_state.frame.frame ||
         request->viewport.struct_size < sizeof(Mw2erViewport) ||
         !mw2er_viewport_size_ok(request->viewport.mod_w, request->viewport.mod_h) ||
         (request->required_layers & MW2ER_LAYER_SCENE) == 0 ||
@@ -478,8 +470,8 @@ static int32_t api_render_frame(const Mw2erRenderRequest *request)
 
 static int32_t publish_frame(Mw2erPublishResult *result)
 {
-    if (!g_state.frame_sealed) {
-        mw2er_set_error("publish_frame before seal");
+    if (!g_state.capture_accepted) {
+        mw2er_set_error("publish_frame before capture acceptance");
         return MW2ER_ERR_NOT_READY;
     }
     if (result != NULL && result->struct_size < sizeof(Mw2erPublishResult)) {
@@ -491,24 +483,20 @@ static int32_t publish_frame(Mw2erPublishResult *result)
         return publish_result;
     }
     g_state.publication_id += 1;
-    const bool materials_ready = g_state.sealed_materials_ready;
-    g_state.published_materials_ready = materials_ready;
-    if (materials_ready)
-        mw2er_presentation_published(
-            mw2er_resources_pending(g_state.resource_generation));
     if (result != NULL) {
-        result->coverage = materials_ready ? MW2ER_COVERAGE_SCENE : 0;
+        // Coverage describes completed output, including any omitted draws.
+        result->coverage = MW2ER_COVERAGE_SCENE;
         result->completed_layers = MW2ER_LAYER_SCENE | MW2ER_LAYER_OVERLAY;
         result->reserved = 0;
         result->publication_id = g_state.publication_id;
-        result->source_frame = g_state.sealed_frame;
+        result->source_frame = g_state.frame.frame;
         result->session_generation = g_state.session_generation;
         result->mission_generation = g_state.mission_generation;
         result->resource_generation = g_state.resource_generation;
         result->context_generation = mw2er_gl_context_generation();
     }
-    g_state.frame_build = 0;
-    g_state.frame_sealed = 0;
+    g_state.capture_available = 0;
+    g_state.capture_accepted = 0;
     return MW2ER_OK;
 }
 
@@ -533,8 +521,7 @@ static int32_t api_composite_frame(
     const Mw2erPresentation presentation = mw2er_presentation_get(
         present->time_seconds,
         present->viewport.view_mode,
-        g_state.publication_id != 0 && g_state.published_materials_ready,
-        mw2er_resources_pending(g_state.resource_generation));
+        mw2er_gl_scene_available(present->viewport));
     const int32_t composite_result = mw2er_gl_composite(
         &present->viewport, &presentation);
     if (composite_result != MW2ER_OK) {
@@ -582,7 +569,7 @@ static int32_t api_bind_frame(
     if (result != MW2ER_OK) {
         return result;
     }
-    result = api_seal_frame(frame->frame);
+    result = api_accept_capture(frame->frame);
     if (result != MW2ER_OK) {
         return result;
     }
@@ -630,8 +617,7 @@ static int32_t api_composite(const Mw2erViewport *vp)
     const Mw2erPresentation presentation = mw2er_presentation_get(
         g_state.frame.time_seconds,
         vp->view_mode,
-        g_state.publication_id != 0 && g_state.published_materials_ready,
-        mw2er_resources_pending(g_state.resource_generation));
+        mw2er_gl_scene_available(*vp));
     return mw2er_gl_composite(vp, &presentation);
 }
 
@@ -699,7 +685,6 @@ struct StatusBoundary<Function> {
             mw2er_set_error("unexpected C++ exception in renderer");
         }
         reset_frame_transaction();
-        g_state.published_materials_ready = false;
         mw2er_gl_invalidate_publication();
         return MW2ER_ERR_GENERIC;
     }
@@ -728,7 +713,7 @@ static const Mw2erApi g_api = {
     StatusBoundary<api_begin_mission>::call,
     api_end_mission,
     StatusBoundary<api_capture>::call,
-    StatusBoundary<api_seal_frame>::call,
+    StatusBoundary<api_accept_capture>::call,
     StatusBoundary<api_render_frame>::call,
     StatusBoundary<api_publish_frame>::call,
     StatusBoundary<api_composite_frame>::call,

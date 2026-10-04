@@ -11,7 +11,7 @@
   procedure resolver. The ABI v6 descriptor names one DOS file whose successful
   open the host should observe. DOSBox-X records that file's absolute host path
   through its mounted local or overlay drive, then exposes the recorded path
-  through a session callback. The DLL observes `MECH2.EXE`, requests its path
+  through a session callback. The DLL observes `MW2.EXE`, requests its path
   once at session start, and derives its sibling `MW2.PRJ` path. No lookup in
   the current DOS directory occurs at session start, and DOSBox-X does not
   name, open, or hash the archive.
@@ -23,7 +23,7 @@
   is retained beside the C++ source.
 - The host passes a strictly read-only contiguous guest-memory view only during
   capture. Rendering, publication, and composition use renderer-owned state.
-- The C ABI v6 transaction owns session, mission, capture, seal, render,
+- The C ABI v6 transaction owns session, mission, capture acceptance, rendering,
   publication, and composition lifecycle. Calls remain serialized on the
   emulator/OpenGL thread. The host keeps its GL context current during GL
   callbacks, and resource callbacks complete synchronously within resource
@@ -40,52 +40,57 @@
   successful resize publishes the new set and releases the old targets and
   satellite-damage scratch target. Both target sets temporarily coexist
   during a resize, with no additional steady-frame targets.
+- A session is one executable/app launch and may contain many missions. Keep
+  cached source assets, current draw eligibility, and usable output separate:
+  retaining an asset never makes its object active, and a missing asset never
+  vetoes unrelated draws or frame presentation.
 - `[renderer] load_resources_from_prj` defaults to true. `prj_archive.cpp` owns
-  one read-only archive handle and the sparse numeric CEL/POLY/LUMA index. Production
-  loading requires the qualified archive's size and SHA-256, computed from the
-  same handle used for resource reads. Checked little-endian decoding validates
+  the worker-local read-only archive handle and sparse numeric CEL/POLY/LUMA
+  index. Production loading checks the qualified archive's size and SHA-256
+  through the same handle used for reads. Checked little-endian decoding validates
   directory/index bounds, DATA wrappers, requested type/id, and payload sizes.
-  Other hashes remain unsupported; symbol names and other backing files are
-  not used for numeric lookup.
-- `resource.cpp` loads every occupied CEL, POLY and LUMA in one background worker,
-  publishing the complete immutable CPU source cache only after validation
-  succeeds. CEL assets retain dimensions and palette indices; POLY assets
-  retain the entire WTBO body, including opaque trailers and point/line/DUMMY
-  resources. Retaining source bytes does not extend the ordinary mesh decoder.
-  The worker makes no guest-memory reads, guest acquire/release calls, or GL
-  calls. Coherent scene capture may use resident guest resources while the cache
-  is pending; proactive guest acquisition remains deferred. A path, qualification,
-  read, validation, or worker failure logs its reason once for that attempt
-  inside a multiline asterisk banner explicitly announcing guest-memory fallback,
-  joins the worker, discards the entire unpublished cache, and resumes ordinary
-  guest-memory discovery and loading. Failure never marks guest preload as
-  complete. The renderer does not retry the archive every frame; a new session
-  can attempt it again.
-- The open handle denies writes/replacement and remains alive across missions
-  and executable sessions using the same derived archive path and identity.
-  Changing that backing identity or shutting down cancels and joins the worker
-  before releasing its cache and handle. Source lookup reuses the existing
-  resource/texture/LOD consumers. With a healthy archive, genuinely absent keys
-  can use the mission-owned guest-memory fallback. Decoded scene state,
-  palette/material bindings, and GPU resources retain their existing generation
-  boundaries.
-  Loading adds a background hash/read operation and retained CPU memory; steady
-  lookups search the immutable cache without file I/O or another rendering path.
-- With PRJ loading disabled or unavailable, the original mission preload remains
-  active:
-  initialized texture tables and component descriptors supply requests, and
-  DOSBox-X services them through guest acquire/release at safe points. The
-  loading handoff waits for queued work with bounded unavailable/stall fallbacks.
-  Hosts that cannot resolve `MECH2.EXE` use this same memory-only flow.
-  A missing required texture prevents complete replacement-scene coverage,
-  preserving native fallback. A missing renderer-selected POLY leaves installed
-  game geometry available. LUMA uses passive resident lookup only and is never
-  added to the guest acquisition queue.
-- Guest resource discovery reports queue allocation failures without marking the
-  catalog complete. Failed acquisitions or copies rotate existing pending
-  entries to the queue tail without allocating; retries preserve batch order
-  and the established retry limit. Guest acquire/release callbacks remain
-  outside renderer allocation exception handlers.
+  Other hashes remain unsupported. Invalid individual DATA slots fail at lookup
+  without rejecting other records in a usable index.
+- `resource.cpp` loads all occupied CEL, POLY and LUMA records in one background
+  worker, independently of the current scene. Successfully loaded source assets
+  survive individual record failures. CEL assets retain dimensions and indices;
+  POLY assets retain the WTBO body, including opaque trailers and point/line/DUMMY
+  resources. Source validity does not imply support by the ordinary mesh decoder.
+  Once loading finishes, the worker closes its reader and releases its index
+  before publishing the immutable source cache. Failed open/qualification attempts
+  and skipped records are diagnosed once. No worker accesses guest memory, calls
+  the guest loader, logs through the host, or touches GL state.
+- Owned archive bytes and the result of the load attempt survive mission changes.
+  Reopening a host session with the same path and archive identity reuses that
+  result for the renderer lifetime; there is no repeated source-file validation
+  or I/O. Changing that identity or shutting down cancels and joins the worker
+  before releasing the cache. The installed asset collection is assumed unchanged
+  during the launch; hot replacement is not detected through per-frame checks.
+- Coherent capture can use resident guest resources while bulk loading is pending.
+  Proactive guest acquisition waits for that attempt, then queues only unavailable
+  CEL/POLY keys through initialized texture and component metadata. There is no
+  minimum catalog-size threshold. DOSBox-X services bounded batches at guest safe
+  points, separately from frame submission; pending counts schedule this work and
+  never gate rendering or loading handoff. Disabled or unavailable archive access
+  uses the same fallback. A missing renderer-selected POLY can still use installed
+  game geometry. LUMA uses passive resident lookup and never enters this queue.
+- Owned fallback CEL/POLY source bytes survive missions within an executable
+  session. Discovery queues, guest associations, decoded meshes, material bindings,
+  and GPU caches retain their mission/context reset boundaries. Source bytes are
+  independent of live palette, LUMA selection, animation selector, and entity state;
+  those inputs still determine each capture's drawable content. Resource lookup
+  reuses the existing texture/LOD consumers, without a second rendering pipeline.
+- Queue allocation failure stops further discovery for that mission and logs the
+  omission while rendering continues. Failed acquisitions or copies rotate pending
+  entries without allocating, subject to the existing retry limit. Resources that
+  became resident before service are skipped. Guest acquire/release pairing and
+  invalid callback-context checks remain enforced.
+- Loading retains source bytes in CPU memory; preparation and GPU upload remain
+  lazy. Missing or unsupported material inputs omit only dependent draws, with
+  bounded diagnostics and reevaluation on later captures. Inactive descriptors are
+  distinct from unavailable inputs, require no usable asset, and contribute no
+  draws even when their geometry remains cached. Draw-span filtering uses the same
+  eligibility for retained texture and billboard streams.
 - `mod_init.py`, joystick input, and gameplay fixes remain Python mods and can
   run beside the native renderer.
 
@@ -228,7 +233,7 @@ owners named below are historical unless repeated in the current-native section.
 - `[render] mod renderer host vsync` independently requests OpenGL swap interval 1 after the SDL2 context is current and verifies the active interval. It does not select DOSBox-X's `[vsync] vsyncmode=host`, so host presentation synchronization cannot change emulated VGA timing. The fullscreen 60 and 72 FPS launchers enable this setting while retaining `vsyncmode=off`; uniform fixed-refresh presentation requires a host refresh that is an integer multiple of the selected target, such as 120 Hz for 60 FPS or 144 Hz for 72 FPS. The cooperative game-frame wait remains before rendering, while the final swap may block for the remaining presentation interval. No additional scene work, upload, or synchronization primitive is introduced.
 - DOSBox-X accounts OpenGL buffer mapping, native uploads, compositing, and swaps as host work rather than guest CPU load for automatic cycles. Nested scopes share one clock. This prevents driver waits outside the swap call from collapsing the guest CPU budget; guest execution between updates remains accounted normally.
 - With an active mod at normal emulation speed, timer refill retains short-stall debt in 20 ms batches, up to 250 ms including retained debt. Longer interruptions still discard excess time. Normal enhanced presentation defers while outstanding timer debt exceeds 2 ms, preserving pending frame requests while the ordinary CPU/PIC/timer loop catches up. Resource barriers, pause, and fast-forward bypass the presentation gate. Swaps remain synchronous; these policies do not guarantee uniform presentation or eliminate startup audio transients. Monitor-aware automatic rate selection remains separate work.
-- New-scene readiness and time-varying composition are separate contracts. A compositor-only effect calls `modgl.set_continuous_presentation(True)` to request repeated composition of the last published textures at the configured target cadence, then releases that request with `False`. Continuous presentation does not repeat geometry extraction or synchronize the CPU and GPU. It exists for effects whose output changes with wall time despite no newly published game frame; DOSBox-X does not know which effect requested it.
+- Newly published output and time-varying composition are separate contracts. A compositor-only effect calls `modgl.set_continuous_presentation(True)` to request repeated composition of the last published textures at the configured target cadence, then releases that request with `False`. Continuous presentation does not repeat geometry extraction or synchronize the CPU and GPU. It exists for effects whose output changes with wall time despite no newly published game frame; DOSBox-X does not know which effect requested it.
 - The scene framebuffer's logical size follows the mod viewport passed by DOSBox-X. In the current side-by-side development layout this is the configured single-side resolution, typically 1024x768, not the doubled window/backbuffer width. Under 4x SSAA only its physical color/depth allocation becomes 2048x1536.
 - Target-display and right-MFD 3D views each own a separate color/depth framebuffer whose logical size is the exact camera pane. They follow the active scene sample scale, so 4x SSAA allocates each at twice its logical width and height and linearly downsamples it into the native HUD pane before the corrected one-pixel border is drawn. Satellite-damage rendering uses the same allocation contract but enlarges its reduced-resolution scratch image into the main scene target. Under SSAA that existing stretch pass samples the exact center of each source 2x2 group and writes the resolved color into a constant 2x2 block in the main scene target; the final compositor therefore averages identical values instead of filtering the damaged image twice. Native rendering retains nearest sampling. Auxiliary views do not repeat the live node-list walk: ordinary geometry reuses the primary extraction, while renderer-owned entities select and transform resident mesh plans for that view's projected resolution. MFD and target drawing share one camera-target renderer, and no additional scene walk, geometry extraction, framebuffer, or draw pass is introduced.
 - Supersampled main-target creation is attempted before auxiliary camera targets are allocated. If any supersampled scene or camera target later fails to allocate, the renderer releases the supersampled targets, permanently selects `none` for that OpenGL context, recreates native targets, and retries the failed allocation once. Requested and effective modes remain available on `RendererResources`; subsequent viewport changes in that context do not retry SSAA.
@@ -241,9 +246,9 @@ owners named below are historical unless repeated in the current-native section.
 - The native C++ font renderer uses the same Squarish Sans asset and FreeType C API as the Python renderer. It links its own pinned FreeType source through CMake; headers and the private static library come from the same dependency target. Its 1395 numbered layout slots retain one `(text, spacing, size)` key plus flat vertex and atlas-page ranges, preserving capacity when dynamic text changes. Glyph faces, metrics, kerning, and atlas placement remain cached per resolved size; glyph repacking uses retained scratch storage. FreeType faces are process-owned, while atlas textures, shader, VAO, and streaming VBO are released at the GL-context boundary.
 - The final composite pass binds `ctx.screen`, sets the compositor viewport, disables depth/blend/cull state with `enable_only(moderngl.NOTHING)`, and combines the published scene and premultiplied overlay textures in one fullscreen-quad shader. Native scene targets retain nearest filtering to avoid driver-dependent pixel bleed. A 4x SSAA scene uses linear filtering during this existing sample; at the exact 2:1 axis ratio, each output pixel averages the corresponding 2x2 source neighborhood without an additional resolve texture or draw. After composition, the shader applies the live monitor-brightness step from reloc `0x000A582C` through the selected 64-byte DAC response row at reloc `0x000B4F90`. It linearly interpolates the row's normalized samples independently per RGB channel, retaining the native nonlinear response in which shadows fall faster than highlights without reproducing the original 6-bit palette quantization and posterization.
 - A mission outro hook at callsite `0x0003FC2E` records the native blocking palette fade start time in shared `modstate` and requests continuous presentation when renderer-owned pacing is active. The compositor multiplies the complete scene-plus-overlay result toward black over 1.284 seconds, calibrated from a measured native interval of 1.2841929 seconds, then presents the fully black endpoint and releases continuous presentation. The compositor still performs no game-memory reads. A game-specific per-fade-step presentation hook is intentionally not used: it would follow the native palette-step rate instead of the configured renderer cadence and would couple the generic presentation scheduler to MW2's blocking fade implementation.
-- Four call-only mission-loading hooks own the loading presentation lifecycle: `0x0002CD11` begins with black, `0x0002C4E2` snapshots the background and embedded palette, `0x0002C5B9` snapshots all strip frames plus the UI ramp, and `0x0002CE42` starts the mission preload barrier. At the final hook, initialized texture tables are converted into the existing preload request set and DOSBox-X ends the current decoder slice. The host keeps guest progression paused while the safe callback processes bounded 16-resource CPU batches; a requested next safe point chains the following batch, while wall-clock presentation deadlines allow complete loading-screen composition and swaps between batches. Once CPU acquisition is complete, `scene_renderer.py` creates the complete indexed-texture cache in one final GPU phase. No `glFinish` is required: with no next safe point pending, the outer loop performs one final complete loading presentation and then releases the guest.
+- Native mission-loading captures own the loading visual lifecycle: `0x0002CD11` starts black, `0x0002C4E2` captures the background and palette, `0x0002C5B9` captures strip frames and the UI ramp, and `0x0002CE42` marks game loading finished. These hooks reset mission bindings and observe available resources; they do not establish an asset-completeness barrier or require a final whole-cache GPU upload.
 - Guest resource acquire/release calls recursively enter the DOSBox machine loop. While that nested execution marks `guest_call_active`, safe-point barrier presentation and lifecycle changes are forbidden, and every OpenGL presentation entry point retains the current front buffer instead of clearing or swapping without Python composition. Only the outer machine loop may present or release the barrier. This re-entrancy rule is required to prevent a transient full-black loading frame and to keep the barrier alive across all resource calls.
-- Loading handoff remains closed after preload completion until the first complete enhanced scene/overlay pair is atomically published. This hides first-frame geometry extraction, HUD preparation, and initial GPU scene uploads behind the loading artwork; a two-second timeout and unavailable-capability paths fail open so loading cannot become stuck. Once that complete pair exists, side-by-side modes end the loading override immediately so the live native and enhanced views become visible together. Mod-only presentation immediately begins a 0.25-second fade-out; there is no additional fully lit post-handoff hold because preloading already provides the readiness barrier. `disable_mission_texture_preload` remains a diagnostic fallback, and requests made outside the loading barrier retain the bounded incremental policy. CPU snapshots live only on the mission's fresh `modstate`; loading decode bypasses the process-global HUD sprite cache because Python modules survive executable restarts. The compositor reads no game memory and creates no loading FBO: it clears only the supplied `ctx.screen` viewport and draws mission-local indexed background/strip textures through a dedicated nearest-filtered palette texture. The initial fade-in lasts 0.5 seconds, and the five strip frames continue cycling at the native 330 ms cadence while loading remains visible. Strip timing advances at most one layer per compositor call and discards missed ticks.
+- After game loading finishes, the first usable published scene/overlay output starts handoff regardless of omitted draws or outstanding resources. Side-by-side modes reveal it immediately; mod-only presentation uses the existing 0.25-second fade-out. The initial loading fade-in remains 0.5 seconds, and strips advance at most once per compositor call at the native 330 ms cadence. The compositor reads captured visual state without game-memory access. Runtime frame progress never waits for complete asset coverage; initial loading timing remains a separate policy.
 - `hud_cockpit.py` currently owns the shared cockpit snapshot for the weapon list, power meters, right MFD, compass, and altimeter, retains fixed rendering-site indices for text, and emits generic text, outline, filled-rectangle, and indexed-sprite commands consumed by `renderer/hud_renderer.py`. Player, mech, body, panel, pane, text-position, weapon, control, meter, and MFD fields are read as contiguous structure spans where practical rather than one game-memory call per scalar field. `mech+0xA0` remains authoritative: mode 1 selects startup weapons from `panel+0x78`; mode 2 selects steady weapons, power meters, MFD, compass, and altimeter; other modes emit no current cockpit elements. Startup and steady weapon labels both use the configured `panel+0x34` pane-local text position so the callback handoff does not shift the readout. The shared native player, mech-owner, and master-HUD gates are evaluated before reading panels.
 - The steady power-meter replacement includes signed KPH text, the MASC presence label, throttle/heat/heat-rate/jump-jet bars, and the `ΔH/Δt` heat-rate label. The `[HUD] power_meters` setting selects `native` four-band shading or `enhanced` smooth native-style shading. Enhanced segments retain the native fill geometry and base palette family, then use live palette colors at configurable dark, lit-edge, and peak offsets; two vertex-colored spans interpolate from the lit edge to an off-center peak and from that peak to the dark edge in the existing single batched HUD rectangle draw. Fixed meter state is read through reloc base `0x0A6900`; clean-room runtime addresses around `0x266900` were captured with delta `0x1C0000` and must not be used as process-stable addresses. Heat width is the interpolated 16.16 value shifted by 16, jump-jet geometry is suppressed when raw charge at `mech+0xC0` is negative, and near-full interpolation residue is rounded so a charged bar has no one-pixel remainder. The throttle derives a 15-pixel interior from its 17-pixel-wide inclusive outer rectangle and one-pixel border. Its zero state is one complete interior row, while scaled nonzero extents retain inclusive endpoints so full forward and reverse fills reach the inside border. The enabled-by-default `[HUD] alt_throttle_indicator_position` groups the bar, signed speed text, and active MASC text in a right-center panel whose top and bottom mirror the enhanced altimeter strip. It preserves the native two-to-one forward/reverse split rather than aligning neutral to an altimeter marker; disabling it restores the original panel locations. The alternate labels use the existing persistent text slots and deliberately bypass native-pane clipping, and all bar segments remain in the existing batched HUD rectangle draw without new per-frame GL objects.
 - Native meter shading expands each logical color segment into edge/main/edge/dark bands across its thickness. Enhanced meter values retain fractional fixed-point extents through panel/output scaling and snap only their completed physical-pixel edges, clips, and gradient peak; native mode retains its source-grid quantization. `RendererResources` owns one grow-on-demand HUD rectangle byte buffer whose write cursor resets for each batch. Rectangle, border, and gradient vertices are packed directly into that retained storage and uploaded through a bounded memory view, replacing per-batch Python arrays and serialized byte copies. All filled bands for a batch are submitted in one `GL_TRIANGLES` draw; outlines and text remain separate.
@@ -384,10 +389,21 @@ built host and renderer artifacts with the retained Python runtime and tools.
 
 ### Native ABI and context failure boundaries
 
-ABI 6 capture/seal/render/publish is the canonical frame protocol, including for
-standalone tools. Compatibility slots retain their existing ABI layout pending
-an explicitly versioned cleanup. Status-returning entry points contain C++
-exceptions, invalidate incomplete publication, and reset the frame transaction;
+ABI 6 capture/accept/render/publish is the canonical frame protocol, including
+for standalone tools. The historical `seal_frame` ABI slot accepts the current
+capture's frame identity; it certifies neither asset completeness nor eligibility
+of every intended draw. Its name and layout remain for host compatibility.
+
+Publication requires the scene and overlay passes to have been submitted into
+usable targets for the current capture and GL context. `completed_layers` records
+those passes; `coverage` describes usable replacement output, including omissions.
+GL ordering suffices without a CPU wait for GPU completion. A new primary capture
+discards older unpublished staging work while retaining the last published output.
+Composition checks that publication's target size and context, never a resource
+queue or another capture's material state.
+
+Status-returning entry points contain C++ exceptions, invalidate output on an
+unexpected exception, and reset the frame transaction;
 borrowed capture memory is cleared on every exit. Host guest-call exceptions
 remain host-owned and are rethrown only after the DLL resource call returns.
 The host validates a candidate API before accepting it and invokes shutdown
@@ -490,14 +506,20 @@ because they only repeat source indices. Other CELs retain palette-dependent
 compatibility classification and refresh GPU material fields independently of
 pixel-storage reuse, including recovery from unavailable inputs.
 
-Scene readiness resolves only materials required by the primary and auxiliary
-views. Direct-palette billboard paths do not require LUMA. Missing mappings and
-unsupported materials both prevent complete scene coverage, but remain distinct:
-a mapping that makes index 255 opaque blocks only materials using that index.
-Readiness is sealed with the captured frame and retained with its publication;
-composition never consults a newer capture's mutable texture state. Existing
-loading requirements still apply. Offline replay uses the same resident lookup
-and reports missing required material input rather than guessing an identity map.
+Material capture resolves only descriptors used by the primary and auxiliary
+views. Direct-palette paths do not require LUMA. Missing mappings and unsupported
+materials are distinct reasons to omit dependent draws: a mapping that makes
+index 255 opaque affects only materials using that index. Neither condition
+suppresses the rest of the scene, holds a completed output target, or prolongs
+loading. Later captures can restore the affected draws without toggling the
+renderer. Replay follows this same contract and reports omissions without treating
+them as whole-frame failure or guessing an identity map.
+
+The selected LUMA is live game state, even when all stock bodies are cached.
+Mission transitions reset selection associations and classification state; each
+capture resolves the current selection and palette. Resident fallback bytes remain
+subject to change detection. Source-cache retention must never freeze the active
+mission's mapping or its palette-dependent interpretation.
 
 The enhanced compatibility classifier checks shade-0 and shade-8 colors against
 shade-15 for every used source index before permitting darkening or split-fog.
@@ -511,6 +533,6 @@ fallback traverses a resident chain and copies/compares 4 KiB per capture; there
 is no per-frame PRJ/guest agreement check. Fades can trigger more nonidentity
 classifications. The brightening guard adds one midpoint palette lookup per used
 index during those classifications.
-Identity CELs bypass RGB fitting. Stock LUMA preload adds 12 KiB; no extra scene
+Identity CELs bypass RGB fitting. Stock LUMA source caching adds 12 KiB; no extra scene
 walk or draw pass is introduced. Full-game overhead is unmeasured; broader response
 curve work and classification optimization remain deferred.

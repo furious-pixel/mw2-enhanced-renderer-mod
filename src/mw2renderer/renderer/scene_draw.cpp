@@ -295,8 +295,9 @@ static int g_retained_workload;
 static int g_debug_groups_requested;
 static float g_line_range_max = 1.0f;
 static Mw2erResolvedTexture g_resolved_desc[MW2ER_MAX_DESC];
-// 0 unseen, 1 ready, 2 unavailable, 3 unsupported; resolve each required slot once.
-static uint8_t g_resolved_desc_status[MW2ER_MAX_DESC];
+static Mw2erMaterialResult g_resolved_desc_status[MW2ER_MAX_DESC];
+// Bounded, once-per-reason diagnostics for each descriptor in this mission.
+static uint8_t g_reported_material_issues[MW2ER_MAX_DESC];
 static uint32_t g_unavailable_materials, g_unsupported_materials;
 
 static double now_ms(void)
@@ -1518,9 +1519,8 @@ static void set_indexed_geo_camera(
     set1f(p.u_wireframe_fade_end, cam.imaging_fade_end);
 }
 
-/* TODO: animation families are same-size identity-mapped CELs. Upload once
- * as a GL_TEXTURE_2D_ARRAY and pick the layer. Skip until every frame of
- * that family is resident. Python caches one 2D texture per CEL image. */
+/* Cache each usable CEL independently. Any future array-texture optimization
+ * must preserve drawing available animation frames while others are missing. */
 static GLuint cel_gpu_tex(const Mw2erResolvedTexture &tex)
 {
     int w = tex.width;
@@ -1580,13 +1580,26 @@ static void capture_partition_materials(const Mem &mem, const Mw2erGeomPartition
 {
     for (int ui = 0; ui < gp.used_desc_n; ++ui) {
         const int desc = gp.used_desc[ui];
-        if (g_resolved_desc_status[desc]) continue;
+        if (g_resolved_desc_status[desc] != Mw2erMaterialResult::Unvisited) continue;
         Mw2erResolvedTexture &tex = g_resolved_desc[desc];
-        const bool ready = mw2er_texture_resolve(mem, desc, tex) && tex.valid;
-        g_resolved_desc_status[desc] = ready ? 1 : tex.unsupported ? 3 : 2;
-        if (!ready) {
-            if (tex.unsupported) ++g_unsupported_materials;
+        const auto result = mw2er_texture_resolve(mem, desc, tex);
+        g_resolved_desc_status[desc] = result;
+        if (result == Mw2erMaterialResult::Unavailable ||
+            result == Mw2erMaterialResult::Invalid ||
+            result == Mw2erMaterialResult::Unsupported) {
+            if (result == Mw2erMaterialResult::Unsupported) ++g_unsupported_materials;
             else ++g_unavailable_materials;
+            const uint8_t issue = uint8_t(1u << (unsigned)result);
+            if (!(g_reported_material_issues[desc] & issue)) {
+                g_reported_material_issues[desc] |= issue;
+                const char *reason = result == Mw2erMaterialResult::Unavailable ? "unavailable inputs" :
+                    result == Mw2erMaterialResult::Invalid ? "invalid descriptor" : "unsupported material";
+                char message[192];
+                snprintf(message, sizeof(message),
+                    "mw2renderer: skipping descriptor %d (CEL %d): %s; continuing frame",
+                    desc, tex.resource_id, reason);
+                mw2er_log(message);
+            }
         }
     }
 }
@@ -1610,11 +1623,6 @@ static void capture_desc_slots(const Mem &mem)
     mw2er_startup_materials(g_unavailable_materials, g_unsupported_materials);
 }
 
-bool mw2er_scene_materials_ready(void)
-{
-    return g_required_geometry && !g_unavailable_materials && !g_unsupported_materials;
-}
-
 static void sync_desc_slots(void)
 {
     /* CEL creation needs a binding point on GL 3.3. Use the indexed-image
@@ -1623,7 +1631,7 @@ static void sync_desc_slots(void)
      * part of the retained render state. */
     glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_INDEXED);
     for (int desc = 0; desc < MW2ER_MAX_DESC; ++desc) {
-        if (g_resolved_desc_status[desc] != 1) {
+        if (g_resolved_desc_status[desc] != Mw2erMaterialResult::Drawable) {
             g_gpu.desc[desc].valid = 0;
             g_gpu.desc[desc].tex = 0;
             continue;
@@ -1679,6 +1687,7 @@ void mw2er_scene_mission_reset(bool loading)
     g_required_geometry = 0;
     g_primary_view = MW2ER_VIEW_NONE;
     memset(g_resolved_desc_status, 0, sizeof(g_resolved_desc_status));
+    memset(g_reported_material_issues, 0, sizeof(g_reported_material_issues));
     g_unavailable_materials = g_unsupported_materials = 0;
     for (SceneGeometry *scene : {&g_primary, &g_mfd}) {
         mw2er_extract_free(scene->ex);

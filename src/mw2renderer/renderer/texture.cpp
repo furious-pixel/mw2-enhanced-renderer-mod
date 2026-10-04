@@ -413,6 +413,8 @@ static void classify_remap(
 
 void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb)
 {
+    // The source cache may span missions; the selected LUMA and its palette do
+    // not. Resolve live selection each capture and discard bindings on reset.
     g_remap_ready = 0;
     int32_t selected = -1;
     const uint8_t *raw = nullptr;
@@ -516,7 +518,6 @@ static CelCacheEntry *load_cel(
 
     asset = mw2er_resource_find(MW2ER_RESOURCE_CEL, (uint32_t)resource_id);
     if (asset == NULL) {
-        if (!mw2er_resources_allow_guest_fallback()) return NULL;
         if (data_ptr == 0 || data_ptr < CEL_CELL_POINTER_OFFSET) {
             return NULL;
         }
@@ -695,33 +696,7 @@ int mw2er_desc_is_imaging_effect(const Mem &mem, int desc_idx)
     return found;
 }
 
-int mw2er_desc_draw_allowed(const Mem &mem, int desc_idx)
-{
-    uint8_t desc[TEXTURE_DESCRIPTOR_STRIDE];
-    int page;
-    int state;
-    int active;
-
-    if (desc_idx < 0 || desc_idx >= TEXTURE_DESCRIPTOR_COUNT) {
-        return 0;
-    }
-    if (!mem.read_rel(
-            ADDR_TEXTURE_DESCRIPTOR_TABLE +
-                (uint32_t)desc_idx * TEXTURE_DESCRIPTOR_STRIDE,
-            desc,
-            TEXTURE_DESCRIPTOR_STRIDE)) {
-        return 0;
-    }
-    page = load_i16(desc + 0);
-    state = load_u16(desc + 6);
-    active = load_i16(desc + 8);
-    if (page < 0 || page >= 512 || state == 0 || active < 0) {
-        return 0;
-    }
-    return 1;
-}
-
-int mw2er_texture_resolve(
+Mw2erMaterialResult mw2er_texture_resolve(
     const Mem &mem,
     int desc_idx,
     Mw2erResolvedTexture &out)
@@ -740,28 +715,28 @@ int mw2er_texture_resolve(
 
     memset(&out, 0, sizeof(out));
     if (desc_idx < 0 || desc_idx >= TEXTURE_DESCRIPTOR_COUNT) {
-        return 0;
+        return Mw2erMaterialResult::Invalid;
     }
     if (!mem.read_rel(
             ADDR_TEXTURE_DESCRIPTOR_TABLE +
                 (uint32_t)desc_idx * TEXTURE_DESCRIPTOR_STRIDE,
             desc,
             TEXTURE_DESCRIPTOR_STRIDE)) {
-        return 0;
+        return Mw2erMaterialResult::Invalid;
     }
     page = load_i16(desc + 0);
     selector = load_u16(desc + 2);
     animation_interval = load_u16(desc + 4);
     state = load_u16(desc + 6);
     active = load_i16(desc + 8);
-    if (page < 0 || page >= 512 || state == 0 || active < 0) {
-        return 0;
-    }
+    // Inactive descriptors do not need a usable page or any loaded resources.
+    if (state == 0 || active < 0) return Mw2erMaterialResult::Inactive;
+    if (page < 0 || page >= 512) return Mw2erMaterialResult::Invalid;
     if (!mem.read_rel(
             ADDR_TEXTURE_CELL_TABLE + (uint32_t)page * TEXTURE_CELL_PAGE_STRIDE,
             cell,
             TEXTURE_CELL_PAGE_STRIDE)) {
-        return 0;
+        return Mw2erMaterialResult::Invalid;
     }
     for (int i = 0; i < TEXTURE_CELL_SUB_ENTRY_COUNT; ++i) {
         int rid = load_i16(cell + i * TEXTURE_CELL_SUB_ENTRY_STRIDE);
@@ -771,17 +746,17 @@ int mw2er_texture_resolve(
     }
     sub = select_sub(selector, subs, n_subs);
     if (sub < 0) {
-        return 0;
+        return Mw2erMaterialResult::Unavailable;
     }
     {
         int rid = load_i16(cell + sub * TEXTURE_CELL_SUB_ENTRY_STRIDE);
+        out.resource_id = rid;
         uint32_t ptr = load_u32(cell + sub * TEXTURE_CELL_SUB_ENTRY_STRIDE + 4);
         cel = load_cel(mem, rid, ptr);
     }
     if (cel == NULL) {
-        return 0;
+        return Mw2erMaterialResult::Unavailable;
     }
-    out.valid = 1;
     out.width = cel->width;
     out.height = cel->height;
     out.pixels = cel->source_pixels;
@@ -794,17 +769,14 @@ int mw2er_texture_resolve(
     out.enhanced_uv_scale = 1.0f;
     if (desc_idx >= 0x100 && !g_remap_ready) {
         // Unresolved is not even a temporary compatibility identity result.
-        out.valid = 0;
-        return 0;
+        return Mw2erMaterialResult::Unavailable;
     }
     if (desc_idx >= 0x100) {
         // Transparency is a material limitation, not a missing mapping. Only
         // materials that actually use 255 depend on its remap-before-discard rule.
         if ((cel->source_indices[3] & (uint64_t(1) << 63)) &&
             !(g_fixed_indices[3] & (uint64_t(1) << 63))) {
-            out.unsupported = true;
-            out.valid = 0;
-            return 0;
+            return Mw2erMaterialResult::Unsupported;
         }
         const RemapClassification &remap = cached_remap(*cel);
         out.remap_kind_id = remap.remap_kind_id;
@@ -833,5 +805,5 @@ int mw2er_texture_resolve(
                 : cfg.enhanced_dropship_texture_uv_scale;
         }
     }
-    return 1;
+    return Mw2erMaterialResult::Drawable;
 }

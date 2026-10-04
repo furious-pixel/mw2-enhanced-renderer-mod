@@ -6,9 +6,12 @@
 
 enum { MW2ER_MAX_DESC = 512 };
 
+// Capture-time draw eligibility. Omitted materials never prevent frame publication.
+enum class Mw2erMaterialResult : uint8_t {
+    Unvisited, Drawable, Inactive, Unavailable, Invalid, Unsupported
+};
+
 struct Mw2erResolvedTexture {
-    int valid;
-    bool unsupported;
     int width;
     int height;
     int wrap;
@@ -28,12 +31,10 @@ struct Mw2erResolvedTexture {
 void mw2er_texture_free_cache(void);
 // Share one palette/remap revision across all descriptors captured this frame.
 void mw2er_texture_begin_frame(const Mem &mem, const float *palette_rgb);
-int mw2er_texture_resolve(
+Mw2erMaterialResult mw2er_texture_resolve(
     const Mem &mem,
     int desc_idx,
     Mw2erResolvedTexture &out);
-/* 0 if descriptor is completed/stopped or disabled (Python texture.py). */
-int mw2er_desc_draw_allowed(const Mem &mem, int desc_idx);
 int is_aero_lift_fan_resource(int resource_id);
 int mw2er_is_imaging_effect_resource(int resource_id);
 int mw2er_desc_is_imaging_effect(const Mem &mem, int desc_idx);

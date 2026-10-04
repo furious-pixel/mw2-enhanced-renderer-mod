@@ -27,7 +27,7 @@ struct Mw2erStartupScope {
 void mw2er_startup_init(void);
 void mw2er_startup_flush(const char *reason);
 void mw2er_startup_capture(const Mw2erCaptureInput &input);
-void mw2er_startup_present(bool loading, bool handoff, bool scene, uint32_t pending);
+void mw2er_startup_present(bool loading, bool handoff, bool scene);
 void mw2er_startup_texture_context(bool valid, uint64_t remap, uint64_t classification,
                                    int32_t selected, const char *origin);
 void mw2er_startup_materials(uint32_t unavailable, uint32_t unsupported);

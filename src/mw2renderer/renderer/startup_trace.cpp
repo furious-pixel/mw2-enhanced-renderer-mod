@@ -151,7 +151,7 @@ void mw2er_startup_capture(const Mw2erCaptureInput &input)
         s->completed < s->total && s->first == 0 && s->entries == 256;
 }
 
-void mw2er_startup_present(bool loading, bool handoff, bool scene, uint32_t pending)
+void mw2er_startup_present(bool loading, bool handoff, bool scene)
 {
     if (!g_recording) return;
     const double now = mw2er_startup_now_ms();
@@ -160,7 +160,7 @@ void mw2er_startup_present(bool loading, bool handoff, bool scene, uint32_t pend
     if (scene && !g_scene_ms) g_scene_ms = now;
     if (phase != g_phase) {
         g_phase = phase;
-        append(100, pending, now);
+        append(100, 0, now);
     }
 }
 

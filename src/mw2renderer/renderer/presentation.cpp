@@ -2,7 +2,6 @@
 
 #include "mem.h"
 #include "mw2er_internal.h"
-#include "resource.h"
 #include "startup_trace.h"
 
 #include <algorithm>
@@ -24,30 +23,19 @@ constexpr uint32_t kResourceHashTable = 0x000A6D08u;
 constexpr uint32_t kResourceTable = 0x000AE9CCu;
 constexpr double kFadeInSeconds = 0.5;
 constexpr double kFadeOutSeconds = 0.25;
-constexpr double kFirstFrameTimeoutSeconds = 2.0;
-constexpr double kDiscoveryWaitSeconds = 3.0;
-constexpr double kResourceStallSeconds = 10.0;
 constexpr double kStripPeriodSeconds = 0.330;
 constexpr double kOutroSeconds = 1.284;
 
 struct PresentationState {
     Mw2erLoadingVisual visual;
     bool loading = false;
-    bool preload_started = false;
-    bool published_after_preload = false;
-    bool ready_clock_started = false;
-    bool preload_abandoned = false;
-    bool resource_clock_started = false;
+    bool loading_finished = false;
     bool fade_started = false;
     bool strip_started = false;
     bool handoff_started = false;
     bool outro_started = false;
     double fade_at = 0.0;
     double strip_next_at = 0.0;
-    double ready_at = 0.0;
-    double preload_at = 0.0;
-    double resource_progress_at = 0.0;
-    uint32_t last_resources_pending = 0;
     double handoff_at = 0.0;
     double outro_at = 0.0;
     int32_t strip_index = 0;
@@ -319,8 +307,7 @@ int32_t mw2er_presentation_capture(const Mw2erCaptureInput *input)
         g_present.strip_index = 0;
         return MW2ER_OK;
     case MW2ER_EVENT_LOADING_END:
-        g_present.preload_started = true;
-        g_present.preload_at = now;
+        g_present.loading_finished = true;
         return MW2ER_OK;
     case MW2ER_EVENT_OUTRO:
         g_present.outro_started = true;
@@ -331,56 +318,15 @@ int32_t mw2er_presentation_capture(const Mw2erCaptureInput *input)
     }
 }
 
-void mw2er_presentation_published(uint32_t resources_pending)
-{
-    if (g_present.preload_started && mw2er_resources_textures_discovered() &&
-        resources_pending == 0)
-        g_present.published_after_preload = true;
-}
-
 Mw2erPresentation mw2er_presentation_get(
-    double now, int32_t view_mode, bool scene_available, uint32_t resources_pending)
+    double now, int32_t view_mode, bool scene_available)
 {
     Mw2erPresentation out;
     out.brightness = g_present.brightness;
     out.brightness_identity = g_present.brightness_identity;
-    if (g_present.preload_started && !g_present.handoff_started) {
-        const bool discovered = mw2er_resources_textures_discovered() != 0;
-        if (!g_present.preload_abandoned && !discovered &&
-            now - g_present.preload_at >= kDiscoveryWaitSeconds) {
-            g_present.preload_abandoned = true;
-            mw2er_log("mw2renderer: resource preload unavailable "
-                      "(texture catalog did not become ready)");
-        }
-        if (!g_present.preload_abandoned && discovered &&
-            resources_pending != 0) {
-            if (!g_present.resource_clock_started ||
-                resources_pending != g_present.last_resources_pending) {
-                g_present.resource_clock_started = true;
-                g_present.resource_progress_at = now;
-                g_present.last_resources_pending = resources_pending;
-            } else if (now - g_present.resource_progress_at >=
-                       kResourceStallSeconds) {
-                g_present.preload_abandoned = true;
-                mw2er_log("mw2renderer: resource preload stalled "
-                          "(pending count did not change)");
-            }
-        }
-        if (!g_present.preload_abandoned &&
-            (!discovered || resources_pending != 0)) {
-            g_present.ready_clock_started = false;
-        } else {
-            if (!g_present.ready_clock_started) {
-                g_present.ready_clock_started = true;
-                g_present.ready_at = now;
-            }
-            if (g_present.published_after_preload ||
-                (g_present.preload_abandoned && scene_available) ||
-                now - g_present.ready_at >= kFirstFrameTimeoutSeconds) {
-                g_present.handoff_started = true;
-                g_present.handoff_at = now;
-            }
-        }
+    if (g_present.loading_finished && scene_available && !g_present.handoff_started) {
+        g_present.handoff_started = true;
+        g_present.handoff_at = now;
     }
     bool show_loading = g_present.loading;
     if (g_present.handoff_started) {
@@ -392,7 +338,7 @@ Mw2erPresentation mw2er_presentation_get(
         }
     }
     mw2er_startup_present(show_loading, g_present.handoff_started,
-        !show_loading && scene_available, resources_pending);
+        !show_loading && scene_available);
     if (show_loading) {
         out.kind = MW2ER_PRESENT_LOADING;
         out.loading = g_present.visual.valid ? &g_present.visual : nullptr;
