@@ -422,6 +422,24 @@ discards older unpublished staging work while retaining the last published outpu
 Composition checks that publication's target size and context, never a resource
 queue or another capture's material state.
 
+DOSBox-X treats an enabled renderer DLL with an active mission as the owner of
+mod-only presentation. Ownership is independent of frame readiness: temporary
+`MW2ER_ERR_NOT_READY` results and GL context recreation do not release native
+scene raster suppression or permit native output in the mod-only pane. The host
+renews suppression at scene-phase entry while the view permits it, independently
+of successful frame publication. Only a successfully handled render hook signals
+a new mod frame. The compositor uses a valid published frame when available;
+without usable output the mod-only pane remains cleared rather than showing the
+native texture. Original and comparison views retain their native view policies.
+
+A fatal status from the DLL disables the renderer, releases suppression and
+pacing policy, and permits native fallback. Mission end and shutdown also release
+ownership. Ordinary C++ exceptions at status-returning ABI boundaries become fatal
+error results; native process faults are not promised recoverable. Python retains
+its existing frame-scoped suppression requests and disabled-compositor fallback.
+These policies use the host's existing enabled/mission state without a separate
+ownership latch, resource-readiness gate, or frame cache.
+
 Status-returning entry points contain C++ exceptions, invalidate output on an
 unexpected exception, and reset the frame transaction;
 borrowed capture memory is cleared on every exit. Host guest-call exceptions
