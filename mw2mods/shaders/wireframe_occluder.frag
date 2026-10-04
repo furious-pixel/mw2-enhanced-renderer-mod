@@ -8,6 +8,8 @@ uniform float u_palette_index;
 in vec3 v_world_pos;
 out vec4 frag_color;
 
+@CONCEALMENT_FUNCTIONS@
+
 void main() {
     if (
         u_near_clip_plane > 0.0
@@ -16,7 +18,14 @@ void main() {
     ) {
         discard;
     }
+    concealmentClip(v_world_pos);
     float palette_index = clamp(u_palette_index, 0.0, 255.0);
     float palette_u = (palette_index + 0.5) / 256.0;
-    frag_color = vec4(texture(u_palette, vec2(palette_u, 0.5)).rgb, 1.0);
+    frag_color = vec4(
+        applyConcealment(
+            texture(u_palette, vec2(palette_u, 0.5)).rgb,
+            v_world_pos
+        ),
+        1.0
+    );
 }

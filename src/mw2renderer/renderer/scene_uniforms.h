@@ -8,7 +8,8 @@
 enum { SCENE_FRAME_BINDING = 0, SCENE_VIEW_BINDING = 1, SCENE_DRAW_BINDING = 2 };
 
 struct alignas(16) SceneFrameUniforms {
-    float lighting[4]; // fog distance, unused
+    float lighting[4]; // fog distance, conceal far, fade start, sky visible
+    float backdrop[4]; // sky palette U, unused, gradient-end U, gradient height
 };
 
 struct alignas(16) SceneViewUniforms {
@@ -17,15 +18,16 @@ struct alignas(16) SceneViewUniforms {
     float right[4];
     float up[4];
     float forward[4];
-    float viewport[4]; // raster width, height, satellite flag, unused
-    float imaging[4]; // wireframe fade start, end, unused
+    float viewport[4]; // raster width, height, satellite flag, sky backdrop
+    float imaging[4]; // wireframe fade start, end, clear palette U, unused
 };
 
 struct alignas(16) SceneDrawUniforms {
-    float clip[4]; // near clip, unused
+    float clip[4]; // near clip, conceal enabled, unused
 };
 
-static_assert(sizeof(SceneFrameUniforms) == 16);
+static_assert(sizeof(SceneFrameUniforms) == 32);
+static_assert(offsetof(SceneFrameUniforms, backdrop) == 16);
 static_assert(sizeof(SceneViewUniforms) == 160);
 static_assert(offsetof(SceneViewUniforms, position) == 64);
 static_assert(offsetof(SceneViewUniforms, viewport) == 128);

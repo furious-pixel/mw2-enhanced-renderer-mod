@@ -19,6 +19,7 @@ ROOT_FILES = (
     'README.md', 'LICENSE', 'COPYRIGHT', 'THIRD_PARTY_NOTICES.md', 'VERSION',
     'configure.bat', 'install_mw2_v11_patch.bat', 'dosbox-mw2.conf',
     'launchmw2.bat',
+    'launch_level_tweak.bat', 'level_tweaker.bat',
 )
 MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py',
              '_printfps.py', 'joystick.example.conf')
@@ -35,7 +36,13 @@ REQUIRED = ('bin/dosbox-x.exe', 'bin/COPYING', 'bin/glshaders/NOTICE',
             'bin/licenses/SDL_net.txt', 'bin/licenses/freetype/GPLv2.TXT',
             'bin/licenses/pdcurses/core.md', 'bin/licenses/pdcurses/wincon.md', '.venv/Scripts/python.exe',
             '.venv/Scripts/pythonw.exe', '.venv/python-home/python314.dll',
-            '.venv/python-home/LICENSE.txt', 'tools/config_ui/index.html', 'tools/launch_mw2.ps1')
+            '.venv/python-home/LICENSE.txt', 'tools/config_ui/index.html', 'tools/launch_mw2.ps1',
+            'mw2mods/level_overrides.json', 'mw2mods/shaders/scene_uniforms.glsl',
+            'mw2mods/shaders/concealment.glsl', 'tools/level_tweak/launch.ps1',
+            'tools/level_tweak/sidecar.py', 'tools/level_tweak/protocol.py',
+            'tools/level_tweak/overrides.py', 'tools/level_tweak/mission_index.json',
+            'tools/level_tweak/ui/index.html', 'tools/level_tweak/ui/app.js',
+            'tools/level_tweak/ui/styles.css')
 
 
 def copy_file(source: Path, destination: Path):
@@ -127,7 +134,7 @@ def main():
     for file in MOD_FILES:
         copy_file(ROOT / 'mw2mods' / file, stage / 'mw2mods' / file)
     copy_file(stage / 'mw2mods/mod.conf.example', stage / 'mw2mods/mod.conf')
-    for name in ('media', 'tools/config_ui'):
+    for name in ('media', 'tools/config_ui', 'tools/level_tweak'):
         copy_tree(ROOT / name, stage / name)
     for name in ('configure.py', 'launch_mw2.ps1'):
         copy_file(ROOT / 'tools' / name, stage / 'tools' / name)

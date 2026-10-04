@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MW2 Level Tweak</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="strip">
+    <section class="identity">
+      <div class="kicker" id="connection">Connecting</div>
+      <div class="title" id="mission-title">Waiting for mission</div>
+      <div class="code" id="mission-code">----</div>
+      <div class="source" id="source"></div>
+    </section>
+
+    <section class="presets" aria-label="Distance presets">
+      <button type="button" class="preset preset-max" data-preset="max">Max</button>
+      <button type="button" class="preset preset-game" data-preset="game">Game</button>
+      <button type="button" class="preset preset-game-radial" data-preset="game-radial">Radial</button>
+      <button type="button" class="preset preset-farpatcher" data-preset="farpatcher" id="preset-farpatcher">Farpatcher</button>
+      <button type="button" class="preset preset-shipped" data-preset="shipped" id="preset-shipped">Shipped</button>
+      <button type="button" class="preset preset-custom" data-preset="custom">Custom</button>
+    </section>
+
+    <section class="slider-block">
+      <div class="slider-head">
+        <span>Live distance</span>
+        <strong id="live-metres">unconstrained</strong>
+      </div>
+      <div class="slider-wrap">
+        <div class="ticks" id="ticks"></div>
+        <input id="metres" type="range" min="100" max="8000" step="1" value="8000">
+      </div>
+      <div class="hint" id="applied">Applied: Max (unconstrained)</div>
+      <div class="custom-row">
+        <label for="custom-metres">Custom m</label>
+        <input id="custom-metres" type="number" min="0" step="0.01" value="">
+      </div>
+    </section>
+
+    <section class="verdict">
+      <textarea id="comment" maxlength="2000" placeholder="Comment (spoilers allowed)"></textarea>
+      <label class="critical-row">
+        <input type="checkbox" id="critical">
+        Critical fix
+      </label>
+      <div class="save-row">
+        <button type="button" id="save-button">Save</button>
+      </div>
+      <div class="save-status" id="save-status">Save writes your local user overrides. Live preview does not persist until Save.</div>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

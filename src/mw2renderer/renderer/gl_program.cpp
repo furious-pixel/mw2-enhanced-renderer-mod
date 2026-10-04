@@ -109,15 +109,19 @@ static std::string apply_shader_tokens(std::string src, const char *path)
     std::string lighting;
     std::string uniforms;
     std::string common;
+    std::string concealment;
     if (!dir.empty()) {
         uniforms = read_file_optional((dir + "/scene_uniforms.glsl").c_str());
         lighting = read_file_optional((dir + "/scene_lighting.glsl").c_str());
         common = read_file_optional((dir + "/indexed_texmap_common.glsl").c_str());
+        concealment = read_file_optional((dir + "/concealment.glsl").c_str());
         if (!common.empty()) {
+            replace_all(common, "@CONCEALMENT_FUNCTIONS@", concealment);
             replace_all(common, "@SCENE_LIGHTING_FUNCTIONS@", lighting);
         }
     }
     replace_all(src, "@SCENE_UNIFORMS@", uniforms);
+    replace_all(src, "@CONCEALMENT_FUNCTIONS@", concealment);
     replace_all(src, "@SCENE_LIGHTING_FUNCTIONS@", lighting);
     replace_all(src, "@INDEXED_TEXMAP_FUNCTIONS@", common);
     replace_all(src, "@MODE4_EMISSIVE_C_IN_THRESHOLD@", "48.0");

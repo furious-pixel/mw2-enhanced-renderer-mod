@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "overrides": {
+    "goudscn1": {
+      "metres": 504.0
+    },
+    "colbscn1": {
+      "metres": 601.0
+    },
+    "aquascn1": {
+      "metres": 500.0
+    }
+  }
+}

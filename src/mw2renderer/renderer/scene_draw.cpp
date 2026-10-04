@@ -4,6 +4,7 @@
 #include "mw2er_internal.h"
 #include "gl_program.h"
 #include "scene_uniforms.h"
+#include "level_tweak.h"
 #include "scene_extract.h"
 #include "texture.h"
 #include "startup_trace.h"
@@ -48,7 +49,7 @@ struct MeshBuf {
 };
 
 /* One draw pass: linked program + named uniform locations. Blend / depth /
- * cull are applied in the draw function â€” rotors and HUD later change those
+ * cull are applied in the draw function; rotors and HUD later change those
  * while keeping the same program and the same cached textures. */
 struct SkyPass {
     GlProgram prog;
@@ -1560,6 +1561,7 @@ static void clear_gpu_textures(void)
 
 void mw2er_scene_process_init(void)
 {
+    mw2er_level_init();
     const char *workload = getenv("MW2ER_WORKLOAD");
     g_retained_workload = workload != NULL && strcmp(workload, "retained") == 0;
     g_debug_groups_requested = getenv("MW2ER_GL_DEBUG_GROUPS") != NULL;
@@ -1567,6 +1569,7 @@ void mw2er_scene_process_init(void)
 
 void mw2er_scene_mission_reset(bool loading)
 {
+    mw2er_level_mission_reset();
     g_required_geometry = 0;
     g_primary_view = MW2ER_VIEW_NONE;
     g_gpu.frame_uniforms_dirty = true;
@@ -1588,6 +1591,7 @@ void mw2er_scene_mission_reset(bool loading)
 void mw2er_scene_process_shutdown(void)
 {
     mw2er_scene_mission_reset();
+    mw2er_level_shutdown();
 }
 
 static const int k_primary_part_order[] = {
@@ -1601,10 +1605,11 @@ static const int k_primary_part_order[] = {
 static const int k_primary_part_order_count =
     (int)(sizeof(k_primary_part_order) / sizeof(k_primary_part_order[0]));
 // Update one small shared row at a partition boundary, not per program.
-static void set_draw_uniforms(float clip_near)
+static void set_draw_uniforms(float clip_near, bool conceal)
 {
     SceneDrawUniforms draw{};
     draw.clip[0] = clip_near;
+    draw.clip[1] = conceal ? 1.0f : 0.0f;
     glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_DRAW_BINDING]);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(draw), &draw, GL_STREAM_DRAW);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -1752,6 +1757,10 @@ int32_t mw2er_scene_capture(Mw2erRenderView primary_view)
         return MW2ER_ERR_MEMORY_VIEW;
     }
     if (g_retained_workload && g_required_geometry) {
+        // Reused geometry still needs live previews, expiry, and IPC heartbeats.
+        const float previous_far = mw2er_level_conceal_far();
+        mw2er_level_capture(g_primary.ex);
+        g_gpu.frame_uniforms_dirty |= previous_far != mw2er_level_conceal_far();
         g_last_extract_ms = 0.0;
         g_primary.changed = g_mfd.changed = 0;
         return MW2ER_OK;
@@ -1767,6 +1776,7 @@ int32_t mw2er_scene_capture(Mw2erRenderView primary_view)
         return MW2ER_ERR_GENERIC;
     }
     g_primary.changed = 1;
+    mw2er_level_capture(g_primary.ex);
     g_gpu.frame_uniforms_dirty = true;
     if (needed != primary_geometry) {
         if (!mw2er_extract_scene(*view, g_mfd.ex, 1, mfd_view,
@@ -1832,6 +1842,15 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     PartGpu *gpu_parts = scene.part;
     const int upload_frame = scene.changed || force_upload;
     const uint32_t part_mask = view_policy.part_mask;
+    // Keep the distance fade and the clear/sky passes on the same backdrop.
+    const bool wipe = !view_policy.auxiliary && !camera.satellite_view &&
+        (camera.imaging_wireframe || ex.background_wipe);
+    const bool target = part_mask == (1u << MW2ER_PART_TARGET);
+    const bool ground = !target && (ex.ground_visible || camera.satellite_view);
+    const int clear_index = wipe ? ex.fill_palette_index :
+        (ground ? ex.ground_palette_index : 0);
+    const bool draw_sky = ex.sky_visible && !wipe && !camera.satellite_view &&
+        (part_mask & (1u << MW2ER_PART_SCENE));
     {
         double t0 = now_ms();
     upload_and_bind_palette(ex.palette_rgb);
@@ -1839,6 +1858,13 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     if (g_gpu.frame_uniforms_dirty) {
         SceneFrameUniforms frame{};
         frame.lighting[0] = g_primary.ex.lighting.fog_distance_world;
+        frame.lighting[1] = mw2er_level_conceal_far();
+        frame.lighting[2] = std::max(0.0f, frame.lighting[1] - 500.0f / 65536.0f);
+        frame.lighting[3] = g_primary.ex.sky_visible ? 1.0f : 0.0f;
+        frame.backdrop[0] = palette_u(g_primary.ex.sky_palette_index);
+        frame.backdrop[2] = palette_u((int)g_primary.ex.ground_palette_index - 1);
+        frame.backdrop[3] = g_primary.ex.draw_gradient ?
+            (float)g_primary.ex.gradient_height * SKY_RADIUS / 512.0f : 0.0f;
         glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_FRAME_BINDING]);
         glBufferData(GL_UNIFORM_BUFFER, sizeof(frame), &frame, GL_STREAM_DRAW);
         g_gpu.frame_uniforms_dirty = false;
@@ -1852,12 +1878,16 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     view.viewport[0] = (float)scene_w;
     view.viewport[1] = (float)scene_h;
     view.viewport[2] = (float)camera.satellite_view;
+    view.viewport[3] = draw_sky ? 1.0f : 0.0f;
     view.imaging[0] = camera.imaging_fade_start;
     view.imaging[1] = camera.imaging_fade_end;
+    view.imaging[2] = palette_u(clear_index);
     glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_VIEW_BINDING]);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(view), &view, GL_STREAM_DRAW);
-    set_draw_uniforms(camera.clip_near_plane);
+    const bool view_conceal = !camera.imaging_active && !camera.satellite_view;
+    set_draw_uniforms(camera.clip_near_plane, view_conceal);
     float previous_clip_near = camera.clip_near_plane;
+    bool previous_conceal = view_conceal;
     for (GLuint binding = 0; binding < 3; ++binding)
         glBindBufferBase(GL_UNIFORM_BUFFER, binding, g_gpu.uniform_buffers[binding]);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -1867,21 +1897,13 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     glDisable(GL_BLEND);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
-    // Only the main scene takes the indexed imaging/background wipe.
-    const bool wipe = !view_policy.auxiliary && !camera.satellite_view &&
-        (camera.imaging_wireframe || ex.background_wipe);
-    const bool target = part_mask == (1u << MW2ER_PART_TARGET);
-    const bool ground = !target && (ex.ground_visible || camera.satellite_view);
     // Match empty HUD panes: index 0 is normally black but follows palette effects.
-    const int clear_index = wipe ? ex.fill_palette_index :
-        (ground ? ex.ground_palette_index : 0);
     const float *clear = ex.palette_rgb + 3 * clear_index;
     glClearColor(clear[0], clear[1], clear[2], 1.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (ex.sky_visible && !wipe && !camera.satellite_view &&
-        (part_mask & (1u << MW2ER_PART_SCENE))) {
+    if (draw_sky) {
         SkyPass &sky = g_gpu.sky;
         glDisable(GL_DEPTH_TEST);
         sky.prog.use();
@@ -1985,9 +2007,11 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     }
     const float clip_near =
         pid == MW2ER_PART_COCKPIT ? 0.0f : camera.clip_near_plane;
-    if (clip_near != previous_clip_near) {
-        set_draw_uniforms(clip_near);
+    const bool conceal = view_conceal && pid != MW2ER_PART_COCKPIT;
+    if (clip_near != previous_clip_near || conceal != previous_conceal) {
+        set_draw_uniforms(clip_near, conceal);
         previous_clip_near = clip_near;
+        previous_conceal = conceal;
     }
     const int have_culled_geometry =
         gp.wire_occ_indices.count() >= 3 || gp.tris.floats() >= 15 ||

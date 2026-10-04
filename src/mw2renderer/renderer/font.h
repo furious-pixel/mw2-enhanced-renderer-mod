@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-enum { MW2ER_FONT_SLOT_COUNT = 1401 };
+enum { MW2ER_FONT_SLOT_COUNT = 1402 };
 
 struct Mw2erTextMetrics {
     float width;

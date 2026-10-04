@@ -2,6 +2,7 @@
 // points at link time; do not use the later GLSL layout(binding=...) syntax.
 layout(std140) uniform SceneFrame {
     vec4 scene_lighting;
+    vec4 scene_backdrop;
 };
 layout(std140) uniform SceneView {
     mat4 u_projection;
@@ -17,6 +18,14 @@ layout(std140) uniform SceneDraw {
 };
 
 #define u_fog_distance scene_lighting.x
+#define u_conceal_far scene_lighting.y
+#define u_conceal_fade_start scene_lighting.z
+#define u_conceal_sky_visible (scene_lighting.w * scene_viewport.w)
+#define u_conceal_sky_u scene_backdrop.x
+#define u_conceal_ground_u scene_imaging.z
+#define u_conceal_gradient_end_u scene_backdrop.z
+#define u_conceal_gradient_height scene_backdrop.w
+#define u_conceal_draw_gradient float(scene_backdrop.w > 0.0)
 #define u_camera_position scene_camera_position.xyz
 #define u_camera_right scene_camera_right.xyz
 #define u_camera_up scene_camera_up.xyz

@@ -15,6 +15,7 @@ set(_runtime_assets
     "mw2mods/shaders/camera_view_blit.frag"
     "mw2mods/shaders/camera_view_blit.vert"
     "mw2mods/shaders/camo_texmap.frag"
+    "mw2mods/shaders/concealment.glsl"
     "mw2mods/shaders/font.frag"
     "mw2mods/shaders/font.vert"
     "mw2mods/shaders/geometry.frag"
@@ -55,6 +56,7 @@ set(_runtime_assets
     "mw2mods/shaders/wireframe_occluder.frag"
     "mw2mods/shaders/wireframe_occluder.vert"
     "mw2mods/terrain_block_deltas.json"
+    "mw2mods/level_overrides.json"
     "mw2mods/textures/msg_bar_tex.png"
     "mw2mods/textures/msg_bar_tex_dark.png"
 )

@@ -3,6 +3,7 @@
 #include "gl_program.h"
 #include "hud.h"
 #include "font.h"
+#include "level_tweak.h"
 #include "presentation.h"
 #include "scene_draw.h"
 
@@ -519,6 +520,7 @@ int32_t mw2er_gl_render_hud(void)
         return MW2ER_ERR_GL;
     }
     g_gl.staging_overlay_present = 1;
+    mw2er_level_draw_status(g_gl.overlay[g_gl.staging].fbo, g_gl.logical_w, g_gl.logical_h);
     g_gl.staging_submitted_layers |= MW2ER_LAYER_OVERLAY;
     return MW2ER_OK;
 }
