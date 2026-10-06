@@ -1,7 +1,11 @@
 --- a/project-site/public/index.html
 +++ b/project-site/public/index.html
-@@ -55,6 +55,10 @@
- <li><strong>Set up your game and display.</strong><br>Follow <strong>Game Installation</strong> for file placement, patching, verification, and required game settings. Adjust display settings in Renderer and HUD. Settings save automatically.</li>
+@@ -52,9 +52,13 @@
+ <h3 id="fresh-title">First-time installation</h3>
+ <ol>
+ <li><strong>Open the configurator.</strong><br>Run <code>configure.bat</code> in the new folder.</li>
+-<li><strong>Set up your game and display.</strong><br>Follow <strong>Game Installation</strong> for file placement, patching, verification, and required game settings. Adjust display settings in Renderer and HUD. Settings save automatically.</li>
++<li><strong>Set up your game and display.</strong><br>Follow <strong>Game Installation</strong> for file placement, patching, verification, and required game settings. If you had to rename the <code>.bin</code> / <code>.cue</code> files, open the <code>.cue</code> file in a text editor and change the filename in its first line to <code>MECH2_16B.bin</code>, keeping the rest of the line unchanged. Adjust display settings in Renderer and HUD. Settings save automatically.</li>
  <li><strong>Optional: set up your HOTAS.</strong><br>In Input, map axes and tune response curves, inversion, deadzones, and calibration with the live preview. Map buttons to keyboard controls using <a href="https://joytokey.net/en/">JoyToKey</a> or <a href="https://whitemagic.github.io/JoystickGremlin/quickstart.html">Joystick Gremlin</a>.</li>
  </ol>
 +<figure class="installation-example">
