@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
     'README.md', 'LICENSE', 'COPYRIGHT', 'THIRD_PARTY_NOTICES.md', 'VERSION',
     'configure.bat', 'install_mw2_v11_patch.bat', 'dosbox-mw2.conf',
-    'launchmw2.bat',
+    'launchMW2.bat', 'launchmw2_sbs_compare.bat',
     'launch_level_tweak.bat', 'level_tweaker.bat',
 )
 MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py', 'level_tweak_controls.py',
