@@ -94,6 +94,15 @@
 - `mod_init.py`, joystick input, and gameplay fixes remain Python mods and can
   run beside the native renderer.
 
+- `hud.cpp` captures the autopilot label through the existing HUD panel walk
+  and text buffer. Enabled slot 17 must have the autopilot steady callback;
+  only HUD mode 2 and mech autopilot states 1/2 emit text. Pane bounds,
+  pane-relative position, and the CP437 label remain data driven, with
+  `AUTOPILOT` as the empty-label fallback. Its center/bottom panel anchor
+  follows the Python layout without snapping to the canvas center or moving
+  with the throttle. It uses normal font scaling, panel clipping, and live
+  palette index 14, independently of NAV selection and the weapon reticle gate.
+
 ### Native diagnostics
 
 - Native `[renderer] enable_diagnostic_logging` enables draw-count messages in `scene_draw.cpp`: mode-4 node/tree/LOD and triangle counts, plus texmap indices, billboards, flats, lines, points, and rotors. These are emitted from the draw loop for applicable partitions/views; they are not detailed per-entity LOD decisions or periodic Python extraction reports. `mw2er_log` forwards messages through the host callback to the DOSBox-X logger with the `NATIVE RENDERER:` prefix. The shipped `dosbox-mw2.conf` selects `dosbox-x.log`; the DLL does not own a separate diagnostic log file.
