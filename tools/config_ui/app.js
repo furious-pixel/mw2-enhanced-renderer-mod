@@ -310,7 +310,8 @@ function renderInstallation() {
         </p>
         <div class="installation-step-heading">
           <span>1</span>
-          <div><h3>Copy and rename the game files</h3><p>Place your CD image and complete DOS game installation into the release's <code>game</code> directory. Rename the CD image files as shown below.</p></div>
+          <div><h3>Copy and rename the game files</h3><p>Place your CD image and complete DOS game installation into the release's <code>game</code> directory. Rename the CD image files as shown below.</p>
+          <p><strong>If you had to rename the .bin / .cue files:</strong> open the <code>.cue</code> file in a text editor and change the filename in its first line to <code>MECH2_16B.bin</code>, keeping the rest of the line unchanged.</p></div>
         </div>
         <div class="installation-tree" aria-label="Expected game directory and file verification">
           <div class="installation-folder"><span class="installation-node-icon" aria-hidden="true">${icons.folder}</span><strong>game/</strong></div>

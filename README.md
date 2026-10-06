@@ -66,7 +66,10 @@ runs the simulation, missions, AI, sound, music, and interface.
    and extract it into a fresh directory.
 2. **Run `configure.bat` and follow the Game Installation tab.** It shows
    where to place your complete installed DOS game and how to name your
-   `.bin`/`.cue` CD image files. Confirm that both CD image files show as
+   `.bin`/`.cue` CD image files. **If you had to rename the .bin / .cue files,** open the `.cue`
+   file in a text editor and change the filename in its first line to
+   `MECH2_16B.bin`, keeping the rest of the line unchanged.
+   Confirm that both CD image files show as
    **File present** and that `MW2.EXE` and `MW2.PRJ` show as **Verified**.
    CD image files are checked for presence only. The tab identifies supported
    `MW2.EXE` versions, shows patch instructions when v1.0 is detected, and
