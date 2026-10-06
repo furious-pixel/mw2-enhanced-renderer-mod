@@ -65,9 +65,12 @@ runs the simulation, missions, AI, sound, music, and interface.
 1. **[Download the Windows x64 release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/latest)**
    and extract it into a fresh directory.
 2. **Run `configure.bat` and follow the Game Installation tab.** It shows
-   where to place your complete installed DOS game and `.bin`/`.cue` CD image,
-   how to apply the official v1.1 patch if needed, and which in-game detail
-   settings to use. Confirm that both game files show as verified.
+   where to place your complete installed DOS game and how to name your
+   `.bin`/`.cue` CD image files. Confirm that both CD image files show as
+   **File present** and that `MW2.EXE` and `MW2.PRJ` show as **Verified**.
+   CD image files are checked for presence only. The tab identifies supported
+   `MW2.EXE` versions, shows patch instructions when v1.0 is detected, and
+   lists the required in-game detail settings.
 3. **Review the Input, Renderer, and HUD tabs** to suit your controls and
    display. Settings save automatically. Keyboard users can leave joystick
    input disabled.

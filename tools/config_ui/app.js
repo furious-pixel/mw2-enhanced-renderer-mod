@@ -25,6 +25,8 @@ const INSTALLATION_SECTION = {
 };
 
 const icons = {
+  folder: `<svg viewBox="0 0 24 24"><path d="M3 7V5h7l2 3h9v12H3z"/></svg>`,
+  file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/></svg>`,
   installation: `<svg viewBox="0 0 24 24"><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5zM4 7.5l8 4.5 8-4.5M12 12v9"/></svg>`,
   controls: `<svg viewBox="0 0 24 24"><path d="M5 5v14M19 5v14M5 9h5M14 15h5M10 7v4M14 13v4"/></svg>`,
   display: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
@@ -239,23 +241,23 @@ function renderSection() {
 }
 
 function formatFileSize(size) {
-  if (!Number.isFinite(Number(size))) return "Unavailable";
+  if (size == null || !Number.isFinite(Number(size))) return "Unavailable";
   const bytes = Number(size);
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function installationFileStatus(file) {
-  if (file.matches) return {kind: "ok", label: "verified"};
-  if (file.is_unpatched) return {kind: "warning", label: "version 1.0 — patch required"};
-  if (!file.exists) return {kind: "error", label: "missing"};
-  if (file.error) return {kind: "error", label: "could not read"};
-  return {kind: "warning", label: "modified or unsupported"};
+  if (file.error) return {kind: "error", icon: "×", label: "Could not read"};
+  if (!file.exists) return {kind: "warning", icon: "?", label: "File absent"};
+  if (file.matches) return {kind: "ok", icon: "✓", label: file.check === "presence" ? "File present" : "Verified"};
+  if (file.is_unpatched) return {kind: "warning", icon: "×", label: "Version 1.0 — patch required"};
+  return {kind: "error", icon: "×", label: "Unmatched — modified or unsupported"};
 }
 
 function installationSummary(installation) {
   if (installation.ok) {
-    return {kind: "ok", icon: "✓", label: "Supported files verified"};
+    return {kind: "ok", icon: "✓", label: "Required files checked"};
   }
   if (installation.needs_patch) {
     return {kind: "warning", icon: "!", label: "Version 1.1 patch required"};
@@ -263,42 +265,43 @@ function installationSummary(installation) {
   return {kind: "warning", icon: "!", label: "Installation warning"};
 }
 
+function installationExeVersion(file) {
+  if (!file?.exists || file.error) return null;
+  if (file.matches) return "1.1";
+  if (file.is_unpatched) return "1.0";
+  return null;
+}
+
+function renderInstallationFile(name) {
+  const file = app.installation.files.find((entry) => entry.name === name) || {name, exists: false};
+  const status = installationFileStatus(file);
+  const version = installationExeVersion(file);
+  return `<li>
+    <div class="installation-file">
+      <span class="installation-node-icon" aria-hidden="true">${icons.file}</span>
+      <strong>${escapeHtml(name)}</strong>
+      ${name === "MW2.EXE" ? `<span class="installation-version">${version ? `DOS v${version}` : "Version not identified"}</span>` : ""}
+      <span class="installation-file-size">${file.size == null ? "Size unavailable" : formatFileSize(file.size)}</span>
+      <span class="inline-file-status ${status.kind}"><span aria-hidden="true">${status.icon}</span> ${escapeHtml(status.label)}</span>
+      ${file.check === "presence" ? ""
+        : `<span class="installation-tree-hash">SHA-256: <code>${escapeHtml(file.sha256 || "Not available")}</code></span>`}
+      ${file.error ? `<span class="fingerprint-error">${escapeHtml(file.error)}</span>` : ""}
+    </div>
+  </li>`;
+}
+
 function renderInstallation() {
   const installation = app.installation;
   const summary = installationSummary(installation);
+  const executable = installation.files.find((file) => file.name === "MW2.EXE");
+  const executableVersion = installationExeVersion(executable);
   const grid = $("#groups-grid");
   grid.classList.add("single-column");
   grid.innerHTML = `
-    <article class="settings-card verification-card ${installation.ok ? "verified" : "warning"}">
-      <header class="compact-panel-heading">
-        <h2>File verification</h2>
-        <span class="verification-result ${summary.kind}">${summary.icon} ${summary.label}</span>
-      </header>
-      <div class="installation-files">
-        ${installation.files.map((file) => {
-          const status = installationFileStatus(file);
-          return `
-            <section class="fingerprint-file">
-              <div class="fingerprint-summary">
-                <strong>${escapeHtml(file.name)}</strong>
-                <span>(${formatFileSize(file.size)}, <code>${escapeHtml(file.relative_path || file.path)}</code>)</span>
-              </div>
-              <div class="fingerprint-hash">
-                <span>SHA-256:</span>
-                <code>${escapeHtml(file.sha256 || "Not available")}</code>
-                <span class="inline-file-status ${status.kind}">(${escapeHtml(status.label)}).</span>
-              </div>
-              ${file.error ? `<p class="fingerprint-error">${escapeHtml(file.error)}</p>` : ""}
-            </section>`;
-        }).join("")}
-      </div>
-      <footer class="installation-note">
-        Files are checked in the supported directory shown above. A different DOSBox mount path is not discovered automatically.
-      </footer>
-    </article>
     <article class="settings-card installation-guide">
       <header class="compact-panel-heading">
         <h2>Installation</h2>
+        <span class="verification-result ${summary.kind}">${summary.icon} ${summary.label}</span>
       </header>
       <section class="installation-help">
         <p>
@@ -307,29 +310,43 @@ function renderInstallation() {
         </p>
         <div class="installation-step-heading">
           <span>1</span>
-          <div><h3>Copy the game files</h3><p>Place your CD image and complete DOS game installation into the release's <code>game</code> directory.</p></div>
+          <div><h3>Copy and rename the game files</h3><p>Place your CD image and complete DOS game installation into the release's <code>game</code> directory. Rename the CD image files as shown below.</p></div>
         </div>
-        <pre>game/
-├── MECH2_16B.BIN
-├── MECH2_16B.CUE
-└── c_mech2/
-    └── <strong class="game-install-directory">mech2/  ← complete installed game directory</strong>
-        ├── MW2.EXE
-        ├── MW2.PRJ
-        └── … all other installed game files</pre>
-        ${installation.needs_patch ? `
+        <div class="installation-tree" aria-label="Expected game directory and file verification">
+          <div class="installation-folder"><span class="installation-node-icon" aria-hidden="true">${icons.folder}</span><strong>game/</strong></div>
+          <ul>
+            ${renderInstallationFile("MECH2_16B.BIN")}
+            ${renderInstallationFile("MECH2_16B.CUE")}
+            <li>
+              <div class="installation-folder"><span class="installation-node-icon" aria-hidden="true">${icons.folder}</span><strong>c_mech2/</strong></div>
+              <ul><li>
+                <div class="installation-folder"><span class="installation-node-icon" aria-hidden="true">${icons.folder}</span><strong>mech2/</strong><span class="installation-directory-note">(Complete installed game directory)</span></div>
+                <ul>
+                  ${renderInstallationFile("MW2.EXE")}
+                  ${renderInstallationFile("MW2.PRJ")}
+                  <li><div class="installation-other-files">… all other installed game files</div></li>
+                </ul>
+              </li></ul>
+            </li>
+          </ul>
+        </div>
+        <p class="installation-check-note">BIN/CUE are checked for presence only. EXE/PRJ are checked against the supported version.
+          Files are checked at the paths shown above; a different DOSBox mount path is not discovered automatically.</p>
+        ${executableVersion === "1.0" ? `
           <p class="optional-step">
             <strong>Version 1.1 patch required:</strong> This <code>MW2.EXE</code> is the supported unpatched DOS version.
             Download the <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>
             and save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>. Run the installer, then choose option 2
             in the DOSBox-X window that opens. When it reports <code>Version 1.1 patching process complete</code>, type <code>EXIT</code>.
             Run <code>configure.bat</code> again and confirm that both game files are verified.
-          </p>` : `
+          </p>` : executableVersion === "1.1" ? `
+          <p class="installation-patch-ready"><strong>✓ DOS version 1.1 verified.</strong> No patch installation is needed.</p>` : `
           <p class="optional-step">
-            <strong aria-label="Warning">⚠️</strong> If your DOS copy is not already patched, download the
-            <a href="https://www.moddb.com/games/mechwarrior-2-31st-century-combat/downloads/mechwarrior-2-dos-v11-patch" target="_blank" rel="noopener noreferrer">official DOS v1.1 patch</a>,
-            save <code>mech2v11.zip</code> beside <code>install_mw2_v11_patch.bat</code>, and run the installer.
-            When patching is complete, run <code>configure.bat</code> again and confirm that both game files are verified.
+            <strong>MW2.EXE version not identified.</strong>
+            ${executable?.error ? "Check the file's read permissions and reopen the configurator."
+              : !executable?.exists ? "Copy the installed DOS executable into the directory shown above, then reopen the configurator."
+              : "This file does not match the supported DOS version 1.0 or 1.1. Check that you have the correct edition before applying a patch."}
+            Patch installation instructions appear when the supported version 1.0 is detected.
           </p>`}
         <div class="installation-step-heading">
           <span>2</span>
