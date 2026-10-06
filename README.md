@@ -77,8 +77,9 @@ runs the simulation, missions, AI, sound, music, and interface.
 3. **Review the Input, Renderer, and HUD tabs** to suit your controls and
    display. Settings save automatically. Keyboard users can leave joystick
    input disabled.
-4. **Run a `launchmw2_<FPS>fps.bat` launcher.** Choose the FPS version closest
-   to your monitor's refresh rate. FPS selection is manual for now.
+4. **Run `launchMW2.bat`.** The launcher automatically selects a frame cadence
+   compatible with your monitor's refresh rate. Use `launchmw2_sbs_compare.bat`
+   to start with the original and enhanced renderers side by side.
 
 [![Game Installation showing the required file tree, verified DOS version 1.1, and game detail settings](media/configure-installation.png)](media/configure-installation.png)
 
