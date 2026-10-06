@@ -169,6 +169,32 @@ The remainder of this document records the Python renderer behavior and design
 that still defines parity requirements for the native implementation. Paths and
 owners named below are historical unless repeated in the current-native section.
 
+## Level tweaker ownership
+
+- `tools/level_tweak/` owns the panel, override persistence and launcher. The
+  native `level_tweak.cpp` consumes distance commands and publishes mission
+  status. `mw2mods/level_tweak_controls.py` alone owns simulation-speed writes,
+  using the existing emulation-thread hooks and guest-memory accessors; the
+  renderer ABI remains read-only and no additional scene extraction is used.
+- IPC v4 uses one launch-specific Windows mapping with a 16-byte header,
+  104-byte command, 96-byte renderer status and 48-byte game-control status.
+  The launcher, panel, hook and DLL must use the same protocol version. Named
+  events enforce one owner per role. All row copies use the data mutex;
+  renderer and game-hook attempts never wait. An abandoned mutex clears all
+  rows. Commands require fresh heartbeats and matching renderer/mission identity.
+- Time controls have their own immutable revision and acknowledgement,
+  independent of distance preview/save. Unacknowledged requests are cancelled.
+  The hook applies only the documented normal, quarter-speed or eight-speed
+  timing flags; flags affect simulation ticks, not audio. Disconnect/expiry or
+  mission reset restores the preceding flags only if they still match the
+  hook's last write. Expired revisions cannot replay when a heartbeat resumes.
+- Disabled launches register no time-control hooks. Enabled launches add a
+  clock check to the frame hook and poll the channel at most 10 Hz, with flag
+  writes only on changes or restoration. This added live cost is unmeasured.
+- Window placement is computed once at startup from the primary work area,
+  with a vertical stack or side-by-side fallback. A launch-specific shutdown
+  event closes the panel after DOSBox exits; an active save defers closing.
+
 ## Python parity-reference structure
 
 - `render.py` is the game-facing entry point. It owns mod registration, hook callbacks, per-frame snapshots, runtime controls, loading/outro timing policy, and render-pass orchestration.

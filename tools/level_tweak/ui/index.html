@@ -13,6 +13,16 @@
       <div class="title" id="mission-title">Waiting for mission</div>
       <div class="code" id="mission-code">----</div>
       <div class="source" id="source"></div>
+      <div class="time-controls" role="group" aria-label="Simulation speed">
+        <div class="hint">Simulation speed</div>
+        <div class="time-buttons">
+          <button type="button" data-time="1" aria-pressed="false">¼×</button>
+          <button type="button" data-time="0" aria-pressed="false">Normal</button>
+          <button type="button" data-time="2" aria-pressed="false">8×</button>
+        </div>
+        <div class="hint" id="time-status" aria-live="polite">Load a mission to change time.</div>
+        <div class="hint">Temporary; restored when the panel disconnects. Audio stays at normal speed.</div>
+      </div>
     </section>
 
     <section class="presets" aria-label="Distance presets">

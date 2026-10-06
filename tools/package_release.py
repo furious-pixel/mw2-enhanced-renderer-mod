@@ -21,11 +21,11 @@ ROOT_FILES = (
     'launchmw2.bat',
     'launch_level_tweak.bat', 'level_tweaker.bat',
 )
-MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py',
+MOD_FILES = ('mod_init.py', 'joystick_input.py', 'jumpjet_fuel_recharge_fix.py', 'level_tweak_controls.py',
              '_printfps.py', 'joystick.example.conf')
 REMOVED_MODULES = ('numba', 'llvmlite', 'numpy', 'moderngl', 'glcontext', 'freetype')
 REQUIRED = ('bin/dosbox-x.exe', 'bin/COPYING', 'bin/glshaders/NOTICE',
-            'mw2mods/mw2renderer.dll', 'mw2mods/mod.conf',
+            'mw2mods/mw2renderer.dll', 'mw2mods/mod.conf', 'mw2mods/level_tweak_controls.py',
             'mw2mods/shaders/damage_crt.frag', 'mw2mods/shaders/damage_crt.vert',
             'licenses/freetype/GPLv2.TXT', 'licenses/khronos-opengl.txt',
             'licenses/khronos-platform.txt', 'licenses/stb.txt',

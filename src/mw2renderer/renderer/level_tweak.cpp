@@ -51,10 +51,11 @@ bool lock() noexcept
 {
     DWORD result = WaitForSingleObject(mutex, 0);
     if (result == WAIT_ABANDONED) {
-        // A process may have died midway through either row. Never consume
+        // A process may have died midway through a row. Never consume
         // a partial command or acknowledge an uncommitted save.
         shared->command = {};
         shared->status = {};
+        shared->controls = {};
         accepted = {};
     }
     return result == WAIT_OBJECT_0 || result == WAIT_ABANDONED;
@@ -118,7 +119,7 @@ void mw2er_level_init()
         mw2er_log("mw2renderer: level tweak disabled: session identity generation failed");
         enabled = false;
     }
-    channel = "Local\\mw2_level_tweak_v3_" + channel;
+    channel = "Local\\mw2_level_tweak_v4_" + channel;
     next_poll = next_attach = 0;
     mw2er_level_mission_reset();
 }

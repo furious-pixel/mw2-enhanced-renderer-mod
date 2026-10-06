@@ -3,7 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const bridge = () => window.pywebview.api;
 const state = { scope: null, preset: "max", metres: 8000, status: null,
-  intent: 0, pending: null, sending: false, saving: false, timer: null };
+  intent: 0, pending: null, sending: false, saving: false, timer: null,
+  controlIntent: 0, controlSending: false, controlError: "" };
 const sameScope = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const active = () => state.status?.connected && state.status?.in_mission;
 
@@ -17,6 +18,14 @@ function controls() {
     if (preset === "farpatcher") button.disabled ||= !state.status?.farpatcher_available;
   }
   $("save-button").disabled ||= state.preset === "shipped";
+  for (const button of document.querySelectorAll("[data-time]")) {
+    button.disabled = !active() || !state.status?.controls_available || state.controlSending;
+    button.setAttribute("aria-pressed", String(active() && state.status?.controls_available
+      && Number(button.dataset.time) === state.status.time_mode));
+  }
+  $("time-status").textContent = state.controlSending ? "Applying…" : state.controlError ||
+    (!active() ? "Load a mission to change time." : !state.status?.controls_available ?
+      "Game controls unavailable." : `Applied: ${["Normal", "¼×", "8×"][state.status.time_mode]}`);
 }
 
 function presetMetres(preset, status) {
@@ -37,6 +46,7 @@ function render(status) {
   }
   if (!sameScope(state.scope, status.scope)) {
     state.scope = status.scope;
+    state.controlError = "";
     state.pending = null;
     clearTimeout(state.timer);
     state.preset = status.resolved.preset;
@@ -116,7 +126,23 @@ async function poll() {
   setTimeout(poll, 250); // One outstanding poll, including slow bridge calls.
 }
 
+async function setTime(mode) {
+  if (!active() || !state.status.controls_available || state.controlSending) return;
+  const scope = state.scope;
+  state.controlSending = true;
+  state.controlError = "";
+  controls();
+  try {
+    const result = await bridge().set_time_mode(scope, ++state.controlIntent, mode);
+    if (sameScope(scope, state.scope) && !result.ok) state.controlError = result.error;
+  } catch (error) {
+    if (sameScope(scope, state.scope)) state.controlError = `Time setting failed: ${error}`;
+  } finally { state.controlSending = false; controls(); }
+}
+
 window.addEventListener("pywebviewready", async () => {
+  for (const button of document.querySelectorAll("[data-time]"))
+    button.addEventListener("click", () => setTime(Number(button.dataset.time)));
   for (const button of document.querySelectorAll(".preset")) {
     button.addEventListener("click", () => {
       state.preset = button.dataset.preset;

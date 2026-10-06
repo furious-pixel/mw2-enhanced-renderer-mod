@@ -13,7 +13,7 @@ import time
 TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS.parent))
 from level_tweak.overrides import Catalog, PRESETS, RADIAL_SCALE, SLIDER_MAX, metres_to_fixed
-from level_tweak.protocol import Command, Mapping, fresh, now_ms, signal_ready
+from level_tweak.protocol import Command, K, Mapping, fresh, now_ms, signal_ready
 
 
 class PreviewApi:
@@ -25,6 +25,7 @@ class PreviewApi:
         self._stop = threading.Event()
         self._command = Command(session=secrets.randbits(64) or 1, preset=2)
         self._last_intent = 0
+        self._last_control_intent = 0
         self._saving = False
         self._closed = False
         self._error = ""
@@ -56,9 +57,27 @@ class PreviewApi:
             self._mapping.close()
 
     def _status(self):
-        if self._closed:
+        if self._closed or self._stop.is_set():
             raise RuntimeError("Level tweak window is closing")
         return self._mapping.read_status()
+
+    def _allow_close(self):
+        with self._lock:
+            if self._saving:
+                return False
+            self._stop.set()
+
+    def _watch_shutdown(self, window):
+        event = K.OpenEventW(0x100000, False, self._mapping.name + ".shutdown")
+        if not event:
+            return  # A standalone panel may have no owning launcher.
+        try:
+            while not self._stop.wait(0.25):
+                if K.WaitForSingleObject(event, 0) == 0:
+                    # A save can veto closing; retry after it completes.
+                    window.destroy()
+        finally:
+            K.CloseHandle(event)
 
     @staticmethod
     def _scope(status):
@@ -94,6 +113,7 @@ class PreviewApi:
             try:
                 status = self._status()
                 scope = self._scope(status)
+                controls = self._mapping.read_controls()
             except (OSError, RuntimeError, TimeoutError, UnicodeError) as exc:
                 return dict(ok=False, connected=False, in_mission=False, message=str(exc))
             scn = scope["scn"]
@@ -112,6 +132,9 @@ class PreviewApi:
                         shipped_available=resolved["shipped_available"], farpatcher_available=resolved["farpatcher_available"],
                         resolved_source=resolved["source"], resolved=resolved, slider_max_metres=SLIDER_MAX,
                         live_disagrees_with_catalog=bool(native_fixed and status.live_view_fixed and native_fixed != status.live_view_fixed),
+                        time_mode=controls.time_mode,
+                        controls_available=bool(controls.available and fresh(controls.heartbeat_ms)
+                            and (controls.renderer, controls.mission) == (status.renderer, status.mission)),
                         saving=self._saving, message=self._error)
 
     def _values(self, preset, metres, status):
@@ -130,10 +153,15 @@ class PreviewApi:
             raise ValueError("This preset is unavailable for the mission")
         return PRESETS.index(preset), metres_to_fixed(metres)
 
-    def _set(self, preset, fixed, status, save=False):
+    def _bind_scope(self, status):
+        if (self._command.renderer, self._command.mission, self._command.scn) != (status.renderer, status.mission, status.scn):
+            self._command = Command(session=self._command.session, preset=2)
         self._command.renderer = status.renderer
         self._command.mission = status.mission
         self._command.scn = status.scn
+
+    def _set(self, preset, fixed, status, save=False):
+        self._bind_scope(status)
         self._command.preset = preset
         self._command.view_fixed = fixed
         self._command.revision += 1
@@ -141,10 +169,52 @@ class PreviewApi:
         self._command.heartbeat_ms = now_ms()
         self._mapping.write_command(self._command)
 
-    def _intent(self, intent):
-        if type(intent) is not int or not self._last_intent < intent <= 2**53 - 1:
+    def _intent(self, intent, control=False):
+        field = "_last_control_intent" if control else "_last_intent"
+        if type(intent) is not int or not getattr(self, field) < intent <= 2**53 - 1:
             raise ValueError("Superseded panel request")
-        self._last_intent = intent
+        setattr(self, field, intent)
+
+    def set_time_mode(self, scope, intent, mode):
+        revision = session = None
+        try:
+            with self._lock:
+                status = self._require_scope(scope)
+                controls = self._mapping.read_controls()
+                if (not controls.available or not fresh(controls.heartbeat_ms)
+                        or (controls.renderer, controls.mission) != (status.renderer, status.mission)):
+                    raise ValueError("Game controls are unavailable; return to the running mission")
+                if type(mode) is not int or not 0 <= mode <= 2:
+                    raise ValueError("Unknown time setting")
+                self._intent(intent, control=True)
+                self._bind_scope(status)
+                self._command.control_revision = intent
+                self._command.time_mode = mode
+                self._command.heartbeat_ms = now_ms()
+                revision, session = self._command.control_revision, self._command.session
+                self._mapping.write_command(self._command)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and not self._stop.wait(0.03):
+                with self._lock:
+                    status = self._require_scope(scope)
+                    controls = self._mapping.read_controls()
+                    if (fresh(controls.heartbeat_ms) and controls.available and controls.session == session
+                            and controls.revision == revision and controls.time_mode == mode
+                            and (controls.renderer, controls.mission) == (status.renderer, status.mission)):
+                        return dict(ok=True)
+            raise TimeoutError("Game did not acknowledge the time setting")
+        except (ValueError, TypeError, OverflowError, OSError, RuntimeError) as exc:
+            with self._lock:
+                if (revision is not None and self._command.session == session
+                        and self._command.control_revision == revision):
+                    # Cancel unacknowledged requests so they cannot apply later.
+                    # Keep the distance preview and any newer time request intact.
+                    self._command.control_revision = 0
+                    try:
+                        self._mapping.write_command(self._command)
+                    except (OSError, RuntimeError, TimeoutError):
+                        pass  # The heartbeat retries the cancellation.
+            return dict(ok=False, error=str(exc))
 
     def set_command(self, scope, intent, preset, metres):
         try:
@@ -208,9 +278,10 @@ def main():
                        height=int(os.getenv("MW2_LEVEL_TWEAK_HEIGHT", "260")))
         if os.getenv("MW2_LEVEL_TWEAK_X") and os.getenv("MW2_LEVEL_TWEAK_Y"):
             options.update(x=int(os.environ["MW2_LEVEL_TWEAK_X"]), y=int(os.environ["MW2_LEVEL_TWEAK_Y"]))
-        webview.create_window("MW2 Level Tweak", (TOOLS / "ui/index.html").as_uri(), js_api=api,
-                              min_size=(640, 220), background_color="#081116", text_select=True, **options)
-        webview.start(debug=False)
+        window = webview.create_window("MW2 Level Tweak", (TOOLS / "ui/index.html").as_uri(), js_api=api,
+                                      min_size=(640, 220), background_color="#081116", text_select=True, **options)
+        window.events.closing += api._allow_close
+        webview.start(api._watch_shutdown, (window,), debug=False)
         return 0
     except Exception as exc:
         C.windll.user32.MessageBoxW(0, str(exc), "MW2 Level Tweak", 0x10)

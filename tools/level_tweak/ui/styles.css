@@ -80,12 +80,18 @@ section {
 
 button, input, label, textarea { font: inherit; }
 
-.preset, #save-button {
+.preset, #save-button, [data-time] {
   border: 1px solid var(--border);
   background: #142832;
   color: var(--text);
   cursor: pointer;
 }
+
+.time-controls { margin-top: 12px; }
+.time-buttons { display: flex; gap: 4px; margin: 4px 0; }
+[data-time] { padding: 3px 6px; white-space: nowrap; }
+[data-time][aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+[data-time]:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .preset {
   padding: 2px 6px;

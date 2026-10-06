@@ -157,6 +157,21 @@ both the original and enhanced renderers.
 | `Ctrl+Shift+/` | Show both renderers side by side. |
 | `Ctrl+Alt+/` | Show the comparison while allowing native 3D rendering to be suppressed. |
 
+### Level tweaker
+
+Run `launch_level_tweak.bat` to open the game and the level tweaker together.
+The launcher places the panel below the game when there is enough vertical
+space, otherwise beside it. The panel closes when DOSBox exits, after any
+active save finishes. To reopen it during the same launch, run
+`level_tweaker.bat <channel>` using the channel printed by the launcher.
+
+In a mission, preview view-distance presets or a custom distance. **Save**
+writes the override to `mw2mods/user_level_overrides.json`. The simulation
+speed buttons select **¼×**, **Normal**, or **8×**, without changing audio
+speed. Speed changes are temporary: disconnecting the panel or starting a
+new mission restores the previous setting unless the game's own cheats
+changed it afterward. Simulation speed is never saved with distance overrides.
+
 ## Updating
 
 Extract the new release into a fresh directory, then copy these from your
@@ -165,6 +180,7 @@ previous installation:
 - `game/`
 - `mw2mods/mod.conf`
 - `mw2mods/joystick.conf`, if present
+- `mw2mods/user_level_overrides.json`, if present
 
 Your existing settings carry over. You can launch immediately, or run
 `configure.bat` to review newly available options.
