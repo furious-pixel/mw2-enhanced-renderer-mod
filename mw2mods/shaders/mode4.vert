@@ -1,14 +1,11 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 in vec3 in_pos;
 in float in_c_in;
 in float in_lighting_state;
 
-uniform mat4 u_projection;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform vec3 u_camera_forward;
 out float v_palette_base;
 out float v_palette_span;
 flat out float v_lighting_state;

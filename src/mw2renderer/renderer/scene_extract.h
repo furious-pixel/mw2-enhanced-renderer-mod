@@ -137,6 +137,7 @@ struct Mw2erGeomPartition {
     IndexStream wire_occ_indices;
     IndexStream wire_line_indices;
     VertStream wire_line_palette;
+    int wire_palette_index = -1; // -1 selects the per-segment palette stream
     VertStream points;
     VertStream lines;
     std::vector<Mw2erRotorDraw> rotor_draws;
@@ -182,7 +183,9 @@ struct Mw2erSceneExtract {
     int ground_visible;
     int draw_gradient;
     uint32_t gradient_height;
-    float ground_color[3];
+    uint8_t fill_palette_index;
+    int background_wipe;
+    uint32_t imaging_submode;
     Mw2erCamera camera;
     char mission_name[32];
     Mw2erLighting lighting;

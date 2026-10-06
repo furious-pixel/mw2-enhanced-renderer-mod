@@ -94,6 +94,20 @@
 - `mod_init.py`, joystick input, and gameplay fixes remain Python mods and can
   run beside the native renderer.
 
+- `hud.cpp` captures the autopilot label through the existing HUD panel walk
+  and text buffer. Enabled slot 17 must have the autopilot steady callback;
+  only HUD mode 2 and mech autopilot states 1/2 emit text. Pane bounds,
+  pane-relative position, and the CP437 label remain data driven, with
+  `AUTOPILOT` as the empty-label fallback. Its center/bottom panel anchor
+  follows the Python layout without snapping to the canvas center or moving
+  with the throttle. It uses normal font scaling, panel clipping, and live
+  palette index 14, independently of NAV selection and the weapon reticle gate.
+
+### Native diagnostics
+
+- Native `[renderer] enable_diagnostic_logging` enables draw-count messages in `scene_draw.cpp`: mode-4 node/tree/LOD and triangle counts, plus texmap indices, billboards, flats, lines, points, and rotors. These are emitted from the draw loop for applicable partitions/views; they are not detailed per-entity LOD decisions or periodic Python extraction reports. `mw2er_log` forwards messages through the host callback to the DOSBox-X logger with the `NATIVE RENDERER:` prefix. The shipped `dosbox-mw2.conf` selects `dosbox-x.log`; the DLL does not own a separate diagnostic log file.
+- Native extraction and primary scene draw-submission CPU timings are exposed separately through the ABI `last_cpu_timing` callback, independently of `enable_diagnostic_logging`. They are CPU elapsed times, not GPU completion timings. The retired Python renderer's detailed stage reports and `target_perf` messages are not produced by the native renderer.
+
 ### Native scene views and ownership
 
 - `texture.cpp` owns mission-lifetime CEL histograms and cached remap
@@ -111,6 +125,26 @@
   from resource and rendering state. Known pacing limits include short catch-up
   intervals and guest fade-duration quantization.
 
+- Native scene clears resolve indices through the captured frame palette.
+  Main enhanced-imaging/X-ray views and the background-wipe flag at reloc
+  `0x000A711C` use the low-byte fill index at `0x000A6F70`, with sky and
+  gradient disabled. Satellite clears use the ground index. Target previews
+  have no sky/ground and clear to palette index 0, matching empty target and
+  inactive weapon-camera panes. MFD cameras retain normal sky/ground handling;
+  other unfilled backgrounds use index 0. These clears follow palette effects
+  without a special tint or extra draw pass. Extraction retains indices and
+  the wipe flag rather than a redundant ground RGB value.
+- Retained static-terrain polygon outlines in imaging sub-mode 0 use constant
+  palette index 8 per draw, sampled from the live scene palette. Initial block
+  extraction checks every face owner for the default color-class branch;
+  exceptional blocks retain dynamic per-segment colors. Shared vertices, edge
+  indices, occluder indices, static CPU/GPU reuse, and draw ordering are unchanged.
+  Constant outlines allocate/upload no per-segment palette table. The indexed
+  shader receives its constant/table selection on every draw to prevent state
+  leakage into object outlines or solid triangles. Imaging sub-mode participates
+  in static-cache invalidation. Other outline colors and packed textured-triangle
+  lighting retain their existing tables; their general capacity limits remain
+  a separate follow-up.
 - `scene_extract.cpp::mw2er_view_policy` maps normal, enhanced imaging, X-ray,
   satellite, and rear/down/weapon MFD views to geometry representation, visible
   partitions, auxiliary behavior, and depth testing. Primary mode is resolved
@@ -148,6 +182,32 @@
 The remainder of this document records the Python renderer behavior and design
 that still defines parity requirements for the native implementation. Paths and
 owners named below are historical unless repeated in the current-native section.
+
+## Level tweaker ownership
+
+- `tools/level_tweak/` owns the panel, override persistence and launcher. The
+  native `level_tweak.cpp` consumes distance commands and publishes mission
+  status. `mw2mods/level_tweak_controls.py` alone owns simulation-speed writes,
+  using the existing emulation-thread hooks and guest-memory accessors; the
+  renderer ABI remains read-only and no additional scene extraction is used.
+- IPC v4 uses one launch-specific Windows mapping with a 16-byte header,
+  104-byte command, 96-byte renderer status and 48-byte game-control status.
+  The launcher, panel, hook and DLL must use the same protocol version. Named
+  events enforce one owner per role. All row copies use the data mutex;
+  renderer and game-hook attempts never wait. An abandoned mutex clears all
+  rows. Commands require fresh heartbeats and matching renderer/mission identity.
+- Time controls have their own immutable revision and acknowledgement,
+  independent of distance preview/save. Unacknowledged requests are cancelled.
+  The hook applies only the documented normal, quarter-speed or eight-speed
+  timing flags; flags affect simulation ticks, not audio. Disconnect/expiry or
+  mission reset restores the preceding flags only if they still match the
+  hook's last write. Expired revisions cannot replay when a heartbeat resumes.
+- Disabled launches register no time-control hooks. Enabled launches add a
+  clock check to the frame hook and poll the channel at most 10 Hz, with flag
+  writes only on changes or restoration. This added live cost is unmeasured.
+- Window placement is computed once at startup from the primary work area,
+  with a vertical stack or side-by-side fallback. A launch-specific shutdown
+  event closes the panel after DOSBox exits; an active save defers closing.
 
 ## Python parity-reference structure
 
@@ -300,7 +360,6 @@ owners named below are historical unless repeated in the current-native section.
 - Uploaded indexed textures remain shared, persistent GPU cache entries, but cache residency does not authorize a draw. Each main-scene, cockpit, target, and MFD geometry owner records the descriptor indices resolved for its current CPU snapshot; every billboard, mode-5/6/7 surface, and enhanced-rotor draw must also find its descriptor in that owner-local active set. Completed or disabled animations therefore stop drawing immediately even though their last uploaded texture and geometry remain cached.
 - Mode 5 uses the same descriptor and page tables, but selects `desc_idx >= 0x100` and resolves the page sub-entry using the descriptor selector at `u16 +0x02` (exact match or clamp-down to the nearest lower valid sub-entry). Mode-5 textures keep nearest sampling, enable repeat wrapping, do not discard palette index `0xFF`, read all 16 texture remap tables from reloc pointer `0x0A6DCC`, and classify opaque texels by weighted remap behavior according to the clean-room remap specification. The classifier preserves `darkening_2color` separately from `darkening` and derives `fog_terminal_color`, `dark_ratio`, and `s8_ratio` from the brightest opaque texel. The fragment shader combines continuous face lighting, Euclidean fog, component damage, and the classified material ramp.
 - Geometry is drawn after sky and gradient into the offscreen scene framebuffer with depth testing enabled. This intentionally departs from the original painter-order renderer to avoid preserving old software overdraw artifacts.
-- Geometry extraction writes periodic diagnostics to `mw2mods/renderer_debug.log`, including runtime delta, runtime and optional reloc-equivalent node/block addresses, terrain/entity counts from node flags, state-flag counts, entity/state mismatches, static/dynamic buffer counts, entity matrix usage and bounds, static cache hits/misses, relaxed-offset counts, runtime byte-read counts, extraction time, face-mode counts, emitted triangle/line/textured counts, texture lookup/read counts, and position/palette/UV bounds.
 - Geometry output is partitioned into static and dynamic families. Ordinary unindexed flat triangles and mode-4 illuminate triangles remain expanded vertex streams. Indexed flat geometry uses a position VBO, a `uint16` triangle EBO, and a palette value per triangle in primitive order. Modes 5/6/7 use descriptor-grouped position/UV VBOs, `uint16` EBOs, and per-triangle lighting-state textures in the same primitive order. Mode-3 billboards and explicit point/line streams retain their specialized expanded layouts. Each continuous lighting-state float packs the pre-fog shade and discrete component policy into non-overlapping numeric lanes, avoiding another primitive texture while preserving exact policy values. Face-dependent lighting state must remain aligned with EBO primitive order.
 - Enhanced-imaging main-scene geometry has a separate indexed wireframe layout for each static/dynamic partition. One tightly packed `float32 xyz` VBO is shared by a `uint32` triangle EBO for black depth occluders and a `uint32` line EBO for closed colored edges. The occluder program always samples palette index 0. The line program reads one `float32` palette index per `GL_LINES` primitive from a nearest-filtered primitive texture through `gl_PrimitiveID`. This layout does not replace or alter the ordinary flat/illuminate/textured EBO families, so their face-lighting alignment remains independent.
 - Enhanced-imaging extraction caches typed face counts, `uint16` local indices, owner slots, occluder gates, and explicit line/polyline records. Static terrain positions/topology and completed indexed wireframe buffers are built once and reused. Dynamic vertex bytes are reread and transformed each frame; each unique live owner palette is refreshed once per extraction before a count-first/fill-second Numba pass creates the dynamic VBO/EBO arrays. Enhanced imaging skips ordinary solid/textured emission that its pass will not draw while preserving explicit point, line, and polyline semantics.
@@ -319,7 +378,6 @@ owners named below are historical unless repeated in the current-native section.
 - Static final-buffer cache keys include the extraction schema, wireframe policy, indexed-wireframe policy, mesh-local enhanced-effect descriptor selection, satellite policy, primitive gates, block identity, and block header. The ordered per-frame list of those keys is the static geometry signature. Static VBOs, EBOs, descriptor-grouped meshes, and primitive textures upload only when that signature changes or the wireframe-build policy changes; otherwise their GL objects are reused. Palette and resolved texture-image updates are independent of the geometry signature and do not invalidate static geometry.
 - Dynamic GL buffers orphan their existing storage before each frame write to avoid waiting on queued GPU use. This applies to dynamic ordinary families and the indexed enhanced-imaging position/EBO buffers. Empty dynamic updates release stale content. A rendering-mode transition changes the static signature and/or wireframe-build policy, causing old static wireframe resources to be replaced or cleared; OpenGL context recreation releases and rebuilds every program, texture, VAO, VBO, and EBO.
 - As a correctness-first workaround for occasional wrong explosion frames, nodes containing mode-3 faces bypass the static geometry cache, mode-3 textured meshes are resynchronized to GL every frame, and mode-3 indexed textures are force-written every frame after descriptor/page resolution. Texture objects are still reused when their dimensions match.
-- Current performance diagnostics split the render hook timing into snapshot/extraction, palette upload, scene clear, sky draw, geometry upload, geometry draw, total scene render, and compositor blit timings in `renderer_debug.log`. Active target extraction also periodically emits `target_perf` timing for target resolution, tree walking, topology, vertex read/decode/transform, face emission, batching, upload, draw, and overlay work.
 - `MW2_RENDERER_CACHE_STATIC_GEOMETRY=1` is the current default. Static node final emitted vertices are reused after the first extraction for each static block, while dynamic entity/cockpit nodes still update every frame. As a current billboard-debug workaround, nodes containing mode-3 faces are treated as dynamic so billboard geometry is always reread from the live node list and reuploaded; referenced mode-3 descriptor textures are also still resolved each frame so GL textures can follow game cache churn. Terrain/static geometry keeps its cached per-face pre-fog lighting state, while modes 4/5/6/7 apply Euclidean fog in the fragment shader from the current camera position so fog remains live while panning and moving.
 
 ## Current Passes
@@ -401,6 +459,24 @@ GL ordering suffices without a CPU wait for GPU completion. A new primary captur
 discards older unpublished staging work while retaining the last published output.
 Composition checks that publication's target size and context, never a resource
 queue or another capture's material state.
+
+DOSBox-X treats an enabled renderer DLL with an active mission as the owner of
+mod-only presentation. Ownership is independent of frame readiness: temporary
+`MW2ER_ERR_NOT_READY` results and GL context recreation do not release native
+scene raster suppression or permit native output in the mod-only pane. The host
+renews suppression at scene-phase entry while the view permits it, independently
+of successful frame publication. Only a successfully handled render hook signals
+a new mod frame. The compositor uses a valid published frame when available;
+without usable output the mod-only pane remains cleared rather than showing the
+native texture. Original and comparison views retain their native view policies.
+
+A fatal status from the DLL disables the renderer, releases suppression and
+pacing policy, and permits native fallback. Mission end and shutdown also release
+ownership. Ordinary C++ exceptions at status-returning ABI boundaries become fatal
+error results; native process faults are not promised recoverable. Python retains
+its existing frame-scoped suppression requests and disabled-compositor fallback.
+These policies use the host's existing enabled/mission state without a separate
+ownership latch, resource-readiness gate, or frame cache.
 
 Status-returning entry points contain C++ exceptions, invalidate output on an
 unexpected exception, and reset the frame transaction;

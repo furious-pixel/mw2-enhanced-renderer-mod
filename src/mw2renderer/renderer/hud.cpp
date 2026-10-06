@@ -40,6 +40,7 @@ enum {
     ADDR_ACTIVE_CAMERA = 0x000A70E8,
     ADDR_MFD_REAR_SPECIAL = 0x0010E1D0,
     ADDR_MASC_ACTIVE = 0x000A62A0,
+    ADDR_AUTOPILOT_TEXT = 0x000A0D28,
     ADDR_GAME_TICK = 0x000A58C4,
     ADDR_CURRENT_HUD_TEXT_COLOR = 0x000B4E92,
     ADDR_MFD_HTAL_LABELS = 0x000A0B20,
@@ -82,12 +83,13 @@ enum {
     CALLBACK_WEAPON_STARTUP = 0x00046E50,
     CALLBACK_THROTTLE = 0x00049560,
     CALLBACK_MASC = 0x00049690,
+    CALLBACK_AUTOPILOT = 0x000494C0,
     CALLBACK_HEAT = 0x00049710,
     CALLBACK_HEAT_RATE = 0x00049790,
     CALLBACK_JUMP_JETS = 0x00049810,
     CALLBACK_OBJECTIVES_STATUS = 0x00048FD0,
     MAX_POWER_METERS = 4,
-    MAX_HUD_TEXTS = 5,
+    MAX_HUD_TEXTS = 6,
     MAX_HTAL_METERS = 11,
     MAX_DAMAGE_DRAWS = 17,
     MAX_VIDEO_NOISE_DRAWS = 2,
@@ -103,12 +105,12 @@ struct AuxTarget { GLuint fbo, color, depth; int w, h; };
 
 enum MeterKind { METER_BAR, METER_THROTTLE };
 enum MeterGrow { METER_LEFT_TO_RIGHT, METER_TOP_TO_BOTTOM, METER_SYMMETRIC };
-enum MeterGroup { METER_GROUP_HEAT_JUMP, METER_GROUP_THROTTLE };
+enum PanelGroup { PANEL_GROUP_HEAT_JUMP, PANEL_GROUP_THROTTLE, PANEL_GROUP_AUTOPILOT };
 
 struct PowerMeter {
     MeterKind kind;
     MeterGrow grow;
-    MeterGroup group;
+    PanelGroup group;
     MeterRect rect;
     double rest_y;
     double amount;
@@ -122,7 +124,7 @@ enum TextAlignment { TEXT_LEFT, TEXT_CENTER, TEXT_RIGHT };
 
 struct HudText {
     int slot;
-    MeterGroup group;
+    PanelGroup group;
     Rect panel_bounds;
     int own_bounds;
     int clip;
@@ -525,7 +527,7 @@ static Transform base_transform(const Rect &r, int panel_id, int w, int h)
     return {tx - px * scale, ty - py * scale, scale, scale};
 }
 
-static Transform meter_transform(const Rect &r, MeterGroup group, int w, int h)
+static Transform panel_transform(const Rect &r, PanelGroup group, int w, int h)
 {
     const Mw2erRendererConfig &cfg = mw2er_config();
     const double position_scale = resolved_scale(h, cfg.hud_position_scaling);
@@ -537,10 +539,11 @@ static Transform meter_transform(const Rect &r, MeterGroup group, int w, int h)
     double target_x;
     double target_y;
     double widescreen;
-    if (group == METER_GROUP_HEAT_JUMP) {
+    if (group == PANEL_GROUP_HEAT_JUMP || group == PANEL_GROUP_AUTOPILOT) {
         pivot_x = (r.left + r.right) * 0.5;
         pivot_y = r.bottom;
-        target_x = canvas_x + 512.0 * position_scale;
+        target_x = canvas_x + (group == PANEL_GROUP_HEAT_JUMP ? 512.0 : pivot_x) *
+            position_scale;
         target_y = canvas_y + pivot_y * position_scale;
         widescreen = 0.0;
     } else if (cfg.hud_alt_throttle_indicator_position) {
@@ -967,12 +970,12 @@ static int draw_power_meters(int width, int height, const float *rgb)
     const int enhanced = _stricmp(mw2er_config().hud_power_meters, "enhanced") == 0;
     for (int i = 0; i < g_hud.meter_count; ++i) {
         const PowerMeter &meter = g_hud.meters[i];
-        const Rect &bounds = meter.group == METER_GROUP_HEAT_JUMP
+        const Rect &bounds = meter.group == PANEL_GROUP_HEAT_JUMP
             ? g_hud.heat_jump_bounds : g_hud.throttle_bounds;
-        const int bounds_valid = meter.group == METER_GROUP_HEAT_JUMP
+        const int bounds_valid = meter.group == PANEL_GROUP_HEAT_JUMP
             ? g_hud.heat_jump_bounds_valid : g_hud.throttle_bounds_valid;
         if (!bounds_valid) continue;
-        const Transform transform = meter_transform(bounds, meter.group, width, height);
+        const Transform transform = panel_transform(bounds, meter.group, width, height);
         if (meter.kind == METER_THROTTLE)
             append_throttle_meter(vertices, rgb, meter, transform, enhanced);
         else
@@ -1495,7 +1498,7 @@ static void capture_meter_text(const Mem &mem, uint32_t mech, uint32_t panel,
     entry.group = callback == mem.rt(CALLBACK_HEAT) ||
                   callback == mem.rt(CALLBACK_HEAT_RATE) ||
                   callback == mem.rt(CALLBACK_JUMP_JETS)
-        ? METER_GROUP_HEAT_JUMP : METER_GROUP_THROTTLE;
+        ? PANEL_GROUP_HEAT_JUMP : PANEL_GROUP_THROTTLE;
     entry.panel_bounds = pane;
     entry.own_bounds = callback == mem.rt(CALLBACK_MASC) && !alternate;
     entry.clip = !alternate;
@@ -1527,6 +1530,30 @@ static void capture_meter_text(const Mem &mem, uint32_t mech, uint32_t panel,
             mw2er_cp437_to_utf8(raw, sizeof(raw),
                                 entry.text, sizeof(entry.text));
     }
+}
+
+static void capture_autopilot_text(const Mem &mem, uint32_t mech,
+                                   uint32_t panel, int panel_index)
+{
+    const int state = mem.i32(mech + 0xBC);
+    const uint32_t position = mem.u32(panel + 0x34);
+    Rect pane;
+    if ((state != 1 && state != 2) || !position ||
+        !panel_rect(mem, panel, pane, 0) || g_hud.text_count >= MAX_HUD_TEXTS)
+        return;
+    HudText &entry = g_hud.texts[g_hud.text_count++];
+    entry = {};
+    entry.slot = panel_index;
+    entry.group = PANEL_GROUP_AUTOPILOT;
+    entry.panel_bounds = pane;
+    entry.own_bounds = 1;
+    entry.clip = 1;
+    entry.color = 0x0E;
+    entry.x = (float)(pane.left + mem.i32(position));
+    entry.y = (float)(pane.top + mem.i32(position + 4));
+    const uint8_t *label = mem.view(mem.rt(ADDR_AUTOPILOT_TEXT), 16);
+    mw2er_cp437_to_utf8(label, 16, entry.text, sizeof(entry.text));
+    if (!entry.text[0]) snprintf(entry.text, sizeof(entry.text), "AUTOPILOT");
 }
 
 static int is_power_callback(const Mem &mem, uint32_t callback)
@@ -1627,7 +1654,7 @@ static void capture_power_meter(const Mem &mem, const uint8_t *meter_state,
     meter.kind = METER_BAR;
     meter.grow = METER_LEFT_TO_RIGHT;
     meter.group = callback == throttle_cb
-        ? METER_GROUP_THROTTLE : METER_GROUP_HEAT_JUMP;
+        ? PANEL_GROUP_THROTTLE : PANEL_GROUP_HEAT_JUMP;
     if (callback == throttle_cb) {
         const Rect group_bounds = alternate ? Rect{911, 285, 1021, 429} : pane;
         include_rect(g_hud.throttle_bounds, g_hud.throttle_bounds_valid, group_bounds);
@@ -1759,7 +1786,7 @@ static int draw_text_at(int slot, const char *text, int color_index,
                            color, width, height) == MW2ER_OK;
 }
 
-static int draw_meter_texts(int width, int height, const float *palette)
+static int draw_hud_texts(int width, int height, const float *palette)
 {
     const int size_px = hud_font_size(height);
     for (int i = 0; i < g_hud.text_count; ++i) {
@@ -1767,14 +1794,14 @@ static int draw_meter_texts(int width, int height, const float *palette)
         if (!entry.text[0]) continue;
         const Rect *bounds = &entry.panel_bounds;
         if (!entry.own_bounds) {
-            bounds = entry.group == METER_GROUP_HEAT_JUMP
+            bounds = entry.group == PANEL_GROUP_HEAT_JUMP
                 ? &g_hud.heat_jump_bounds : &g_hud.throttle_bounds;
         }
         const int bounds_valid = entry.own_bounds ||
-            (entry.group == METER_GROUP_HEAT_JUMP
+            (entry.group == PANEL_GROUP_HEAT_JUMP
                 ? g_hud.heat_jump_bounds_valid : g_hud.throttle_bounds_valid);
         if (!bounds_valid) continue;
-        const Transform transform = meter_transform(
+        const Transform transform = panel_transform(
             *bounds, entry.group, width, height);
         float x = (float)(transform.ox + entry.x * transform.sx);
         float y = (float)(transform.oy + entry.y * transform.sy);
@@ -2604,6 +2631,9 @@ int32_t mw2er_hud_capture_primary(const Mw2erMemoryView &view, double now,
         } else if (callback == mfd_cb) {
             mfd_panel = panel;
             g_hud.mfd.visible = panel_rect(mem, panel, g_hud.mfd.pane, 1);
+        } else if (hud_mode == 2 && i == 17 &&
+                   callback == mem.rt(CALLBACK_AUTOPILOT)) {
+            capture_autopilot_text(mem, mech, panel, i);
         } else if (hud_mode == 2 && is_power_callback(mem, callback)) {
             if (!meter_state_attempted) {
                 meter_state_attempted = 1;
@@ -2841,7 +2871,7 @@ int32_t mw2er_hud_render(uint32_t overlay, int width, int height, int sample)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
     }
-    if (!draw_meter_texts(width, height, palette)) {
+    if (!draw_hud_texts(width, height, palette)) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return MW2ER_ERR_GL;
     }

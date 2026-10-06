@@ -1,10 +1,8 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 uniform sampler2D u_palette;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_forward;
-uniform float u_near_clip_plane;
-uniform float u_fog_distance;
 
 in float v_palette_base;
 in float v_palette_span;
@@ -13,6 +11,7 @@ in vec3 v_world_pos;
 out vec4 frag_color;
 
 @SCENE_LIGHTING_FUNCTIONS@
+@CONCEALMENT_FUNCTIONS@
 
 void main() {
     if (
@@ -22,6 +21,7 @@ void main() {
     ) {
         discard;
     }
+    concealmentClip(v_world_pos);
     float palette_index = v_palette_base;
     if (v_lighting_state >= 0.0) {
         float final_shade_level = finalShadeLevel(
@@ -34,5 +34,11 @@ void main() {
     }
     palette_index = clamp(palette_index, 0.0, 255.0);
     float palette_u = (palette_index + 0.5) / 256.0;
-    frag_color = vec4(texture(u_palette, vec2(palette_u, 0.5)).rgb, 1.0);
+    frag_color = vec4(
+        applyConcealment(
+            texture(u_palette, vec2(palette_u, 0.5)).rgb,
+            v_world_pos
+        ),
+        1.0
+    );
 }

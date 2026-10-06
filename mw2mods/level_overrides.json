@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "overrides": {
+    "goudscn1": {
+      "metres": 504.0
+    },
+    "colbscn1": {
+      "metres": 601.0
+    },
+    "aquascn1": {
+      "metres": 500.0
+    },
+    "whizscn1": {
+      "metres": 707.11,
+      "comment": "Foggy planet/mission, needs shorter view distance for correctness. Validated with Game Radial at native VIEW 500 m; shipped distance is 500 * sqrt(2), rounded to 0.01 m.",
+      "critical": true
+    }
+  }
+}

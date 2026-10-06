@@ -54,6 +54,8 @@ add_library(mw2renderer SHARED
     renderer/mw2er_api.cpp
     renderer/compass_altimeter.cpp
     renderer/config.cpp
+    renderer/level_overrides.cpp
+    renderer/level_tweak.cpp
     renderer/terrain_gap.cpp
     renderer/gl_stub.cpp
     renderer/gl_program.cpp

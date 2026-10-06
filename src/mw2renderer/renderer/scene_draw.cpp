@@ -3,6 +3,8 @@
 #include "hud.h"
 #include "mw2er_internal.h"
 #include "gl_program.h"
+#include "scene_uniforms.h"
+#include "level_tweak.h"
 #include "scene_extract.h"
 #include "texture.h"
 #include "startup_trace.h"
@@ -47,14 +49,10 @@ struct MeshBuf {
 };
 
 /* One draw pass: linked program + named uniform locations. Blend / depth /
- * cull are applied in the draw function — rotors and HUD later change those
+ * cull are applied in the draw function; rotors and HUD later change those
  * while keeping the same program and the same cached textures. */
 struct SkyPass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_y_scale;
     GLint u_palette;
     GLint u_palette_start;
@@ -63,46 +61,24 @@ struct SkyPass {
 
 struct Mode4Pass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_palette;
-    GLint u_near_clip_plane;
-    GLint u_fog_distance;
 };
 
 struct BillboardPass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_viewport_size;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
-    GLint u_satellite_billboard;
     GLint u_palette;
     GLint u_indexed_texture;
-    GLint u_near_clip_plane;
 };
 
 struct TexmapPass {
     GlProgram prog;
-    GLint u_projection;
     GLint u_uv_scale;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_palette;
     GLint u_indexed_texture;
     GLint u_remap_kind;
     GLint u_dark_ratio;
     GLint u_fog_terminal_color;
     GLint u_s8_ratio;
-    GLint u_near_clip_plane;
-    GLint u_fog_distance;
     GLint u_texture_role;
     GLint u_texture_size;
     GLint u_rotor_enhanced;
@@ -117,33 +93,18 @@ struct TexmapPass {
 
 struct RotorOutlinePass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_rotor_center;
     GLint u_rotor_axis_u;
     GLint u_rotor_axis_v;
-    GLint u_wireframe_fade_start;
-    GLint u_wireframe_fade_end;
-    GLint u_near_clip_plane;
     GLint u_palette;
     GLint u_palette_index;
 };
 
 struct IndexedGeoPass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
-    GLint u_wireframe_fade_start;
-    GLint u_wireframe_fade_end;
     GLint u_palette;
     GLint u_primitive_palette;
-    GLint u_near_clip_plane;
+    GLint u_constant_palette;
 };
 
 struct IndexedBuf {
@@ -171,28 +132,14 @@ struct WireBuf {
 
 struct GeoPass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_point_size;
-    GLint u_wireframe_fade_start;
-    GLint u_wireframe_fade_end;
     GLint u_palette;
-    GLint u_near_clip_plane;
 };
 
 struct OccluderPass {
     GlProgram prog;
-    GLint u_projection;
-    GLint u_camera_position;
-    GLint u_camera_right;
-    GLint u_camera_up;
-    GLint u_camera_forward;
     GLint u_palette;
     GLint u_palette_index;
-    GLint u_near_clip_plane;
 };
 
 /* Per-desc indexed view of a shared xyz-uv VBO (Python SharedDynamicIndexedMeshSet). */
@@ -253,6 +200,8 @@ struct SceneGpu {
     RotorOutlinePass rotor_outline;
     OccluderPass occluder;
     GLuint palette_tex;
+    GLuint uniform_buffers[3];
+    bool frame_uniforms_dirty;
     MeshBuf sky_mesh;
     MeshBuf gradient;
     IndexedBuf rotor_disc;
@@ -350,13 +299,6 @@ static void set3f(GLint loc, const float *v)
 {
     if (loc >= 0) {
         glUniform3fv(loc, 1, v);
-    }
-}
-
-static void set4x4(GLint loc, const float *m)
-{
-    if (loc >= 0) {
-        glUniformMatrix4fv(loc, 1, GL_FALSE, m);
     }
 }
 
@@ -702,10 +644,6 @@ static bool load_sky_pass(SkyPass &p)
     if (!load_shader(p.prog, "sky.vert", "sky.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_y_scale = p.prog.loc("u_y_scale");
     p.u_palette = p.prog.loc("u_palette");
     p.u_palette_start = p.prog.loc("u_palette_start");
@@ -721,14 +659,7 @@ static bool load_mode4_pass(Mode4Pass &p)
     if (!load_shader(p.prog, "mode4.vert", "mode4.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_palette = p.prog.loc("u_palette");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
-    p.u_fog_distance = p.prog.loc("u_fog_distance");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
     glUseProgram(0);
@@ -740,16 +671,8 @@ static bool load_billboard_pass(BillboardPass &p)
     if (!load_shader(p.prog, "textured.vert", "textured.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_viewport_size = p.prog.loc("u_viewport_size");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
-    p.u_satellite_billboard = p.prog.loc("u_satellite_billboard");
     p.u_palette = p.prog.loc("u_palette");
     p.u_indexed_texture = p.prog.loc("u_indexed_texture");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
     set1i(p.u_indexed_texture, TEXTURE_UNIT_INDEXED);
@@ -763,20 +686,13 @@ static bool load_texmap_pass(
     if (!load_shader(p.prog, vert_name, frag_name)) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
     p.u_uv_scale = p.prog.loc("u_uv_scale");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_palette = p.prog.loc("u_palette");
     p.u_indexed_texture = p.prog.loc("u_indexed_texture");
     p.u_remap_kind = p.prog.loc("u_remap_kind");
     p.u_dark_ratio = p.prog.loc("u_dark_ratio");
     p.u_fog_terminal_color = p.prog.loc("u_fog_terminal_color");
     p.u_s8_ratio = p.prog.loc("u_s8_ratio");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
-    p.u_fog_distance = p.prog.loc("u_fog_distance");
     p.u_texture_role = p.prog.loc("u_texture_role");
     p.u_texture_size = p.prog.loc("u_texture_size");
     p.u_rotor_enhanced = p.prog.loc("u_rotor_enhanced");
@@ -801,17 +717,9 @@ static bool load_rotor_outline_pass(RotorOutlinePass &p)
     if (!load_shader(p.prog, "rotor_outline.vert", "rotor_outline.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_rotor_center = p.prog.loc("u_rotor_center");
     p.u_rotor_axis_u = p.prog.loc("u_rotor_axis_u");
     p.u_rotor_axis_v = p.prog.loc("u_rotor_axis_v");
-    p.u_wireframe_fade_start = p.prog.loc("u_wireframe_fade_start");
-    p.u_wireframe_fade_end = p.prog.loc("u_wireframe_fade_end");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
     p.u_palette = p.prog.loc("u_palette");
     p.u_palette_index = p.prog.loc("u_palette_index");
     p.prog.use();
@@ -825,16 +733,9 @@ static bool load_indexed_geo_pass(IndexedGeoPass &p)
     if (!load_shader(p.prog, "indexed_geometry.vert", "indexed_geometry.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
-    p.u_wireframe_fade_start = p.prog.loc("u_wireframe_fade_start");
-    p.u_wireframe_fade_end = p.prog.loc("u_wireframe_fade_end");
     p.u_palette = p.prog.loc("u_palette");
     p.u_primitive_palette = p.prog.loc("u_primitive_palette");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
+    p.u_constant_palette = p.prog.loc("u_constant_palette");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
     set1i(p.u_primitive_palette, TEXTURE_UNIT_PRIMITIVE);
@@ -847,14 +748,8 @@ static bool load_occluder_pass(OccluderPass &p)
     if (!load_shader(p.prog, "wireframe_occluder.vert", "wireframe_occluder.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_palette = p.prog.loc("u_palette");
     p.u_palette_index = p.prog.loc("u_palette_index");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
     set1f(p.u_palette_index, 0.0f);
@@ -867,16 +762,8 @@ static bool load_geo_pass(GeoPass &p)
     if (!load_shader(p.prog, "geometry.vert", "geometry.frag")) {
         return false;
     }
-    p.u_projection = p.prog.loc("u_projection");
-    p.u_camera_position = p.prog.loc("u_camera_position");
-    p.u_camera_right = p.prog.loc("u_camera_right");
-    p.u_camera_up = p.prog.loc("u_camera_up");
-    p.u_camera_forward = p.prog.loc("u_camera_forward");
     p.u_point_size = p.prog.loc("u_point_size");
-    p.u_wireframe_fade_start = p.prog.loc("u_wireframe_fade_start");
-    p.u_wireframe_fade_end = p.prog.loc("u_wireframe_fade_end");
     p.u_palette = p.prog.loc("u_palette");
-    p.u_near_clip_plane = p.prog.loc("u_near_clip_plane");
     p.prog.use();
     set1i(p.u_palette, TEXTURE_UNIT_PALETTE);
     glUseProgram(0);
@@ -1083,6 +970,8 @@ static float palette_u(int index)
 int32_t mw2er_scene_resources_init(void)
 {
     mw2er_scene_resources_shutdown();
+    glGenBuffers(3, g_gpu.uniform_buffers);
+    g_gpu.frame_uniforms_dirty = true;
     if (!load_sky_pass(g_gpu.sky)) {
         return MW2ER_ERR_GL;
     }
@@ -1147,6 +1036,9 @@ static void clear_gpu_textures(void);
 
 void mw2er_scene_resources_shutdown(void)
 {
+    glDeleteBuffers(3, g_gpu.uniform_buffers);
+    memset(g_gpu.uniform_buffers, 0, sizeof(g_gpu.uniform_buffers));
+    g_gpu.frame_uniforms_dirty = true;
     mesh_destroy(g_gpu.sky_mesh);
     mesh_destroy(g_gpu.gradient);
     indexed_destroy(g_gpu.rotor_disc);
@@ -1372,11 +1264,17 @@ static void sync_part_gpu(PartGpu &gpu, const Mw2erGeomPartition &gp)
                 &gpu.wire.line_bytes,
                 gp.wire_line_indices.ptr(),
                 gp.wire_line_indices.count() * sizeof(uint32_t));
-            upload_prim_tex(
-                &gpu.wire.line_prim,
-                &gpu.wire.prim_w,
-                gp.wire_line_palette.ptr(),
-                (int)gp.wire_line_palette.floats());
+            if (gp.wire_palette_index < 0) {
+                upload_prim_tex(
+                    &gpu.wire.line_prim,
+                    &gpu.wire.prim_w,
+                    gp.wire_line_palette.ptr(),
+                    (int)gp.wire_line_palette.floats());
+            } else {
+                if (gpu.wire.line_prim) glDeleteTextures(1, &gpu.wire.line_prim);
+                gpu.wire.line_prim = 0;
+                gpu.wire.prim_w = 0;
+            }
         } else {
             wire_destroy_line(gpu.wire);
         }
@@ -1503,20 +1401,6 @@ static void prepare_part_draw_spans(
             gpu.billboard_streams[late].push_back((uint16_t)si);
         }
     }
-}
-
-static void set_indexed_geo_camera(
-    const IndexedGeoPass &p,
-    const Mw2erCamera &cam,
-    const float *proj)
-{
-    set4x4(p.u_projection, proj);
-    set3f(p.u_camera_right, cam.right);
-    set3f(p.u_camera_up, cam.up);
-    set3f(p.u_camera_forward, cam.forward);
-    set3f(p.u_camera_position, cam.position);
-    set1f(p.u_wireframe_fade_start, cam.imaging_fade_start);
-    set1f(p.u_wireframe_fade_end, cam.imaging_fade_end);
 }
 
 /* Cache each usable CEL independently. Any future array-texture optimization
@@ -1677,6 +1561,7 @@ static void clear_gpu_textures(void)
 
 void mw2er_scene_process_init(void)
 {
+    mw2er_level_init();
     const char *workload = getenv("MW2ER_WORKLOAD");
     g_retained_workload = workload != NULL && strcmp(workload, "retained") == 0;
     g_debug_groups_requested = getenv("MW2ER_GL_DEBUG_GROUPS") != NULL;
@@ -1684,8 +1569,10 @@ void mw2er_scene_process_init(void)
 
 void mw2er_scene_mission_reset(bool loading)
 {
+    mw2er_level_mission_reset();
     g_required_geometry = 0;
     g_primary_view = MW2ER_VIEW_NONE;
+    g_gpu.frame_uniforms_dirty = true;
     memset(g_resolved_desc_status, 0, sizeof(g_resolved_desc_status));
     memset(g_reported_material_issues, 0, sizeof(g_reported_material_issues));
     g_unavailable_materials = g_unsupported_materials = 0;
@@ -1704,68 +1591,8 @@ void mw2er_scene_mission_reset(bool loading)
 void mw2er_scene_process_shutdown(void)
 {
     mw2er_scene_mission_reset();
+    mw2er_level_shutdown();
 }
-
-static void set_sky_camera(const SkyPass &p, const Mw2erCamera &cam, const float *proj)
-{
-    set4x4(p.u_projection, proj);
-    set3f(p.u_camera_right, cam.right);
-    set3f(p.u_camera_up, cam.up);
-    set3f(p.u_camera_forward, cam.forward);
-}
-
-static void set_mode4_camera(const Mode4Pass &p, const Mw2erCamera &cam, const float *proj)
-{
-    set4x4(p.u_projection, proj);
-    set3f(p.u_camera_right, cam.right);
-    set3f(p.u_camera_up, cam.up);
-    set3f(p.u_camera_forward, cam.forward);
-    set3f(p.u_camera_position, cam.position);
-}
-
-static void set_billboard_camera(
-    const BillboardPass &p, const Mw2erCamera &cam, const float *proj)
-{
-    set4x4(p.u_projection, proj);
-    set3f(p.u_camera_right, cam.right);
-    set3f(p.u_camera_up, cam.up);
-    set3f(p.u_camera_forward, cam.forward);
-    set3f(p.u_camera_position, cam.position);
-}
-
-static void set_texmap_camera(const TexmapPass &p, const Mw2erCamera &cam, const float *proj)
-{
-    set4x4(p.u_projection, proj);
-    set3f(p.u_camera_right, cam.right);
-    set3f(p.u_camera_up, cam.up);
-    set3f(p.u_camera_forward, cam.forward);
-    set3f(p.u_camera_position, cam.position);
-}
-
-enum ScenePassId {
-    PASS_MODE4,
-    PASS_GEO,
-    PASS_INDEXED_GEO,
-    PASS_BILLBOARD,
-    PASS_TEXMAP,
-    PASS_CAMO,
-    PASS_ROTOR,
-    PASS_ROTOR_OUTLINE,
-    PASS_OCCLUDER,
-    PASS_COUNT
-};
-
-struct SceneFrameSetup {
-    const Mw2erCamera *cam;
-    float projection[16];
-    float fog;
-    int scene_w;
-    int scene_h;
-    uint32_t prepared;
-    float clip_near[PASS_COUNT];
-};
-
-static SceneFrameSetup g_frame;
 
 static const int k_primary_part_order[] = {
     MW2ER_PART_STATIC,
@@ -1777,107 +1604,15 @@ static const int k_primary_part_order[] = {
 };
 static const int k_primary_part_order_count =
     (int)(sizeof(k_primary_part_order) / sizeof(k_primary_part_order[0]));
-static int prepare_pass(
-    GlProgram &program, ScenePassId id, GLint near_loc, float clip_near)
+// Update one small shared row at a partition boundary, not per program.
+static void set_draw_uniforms(float clip_near, bool conceal)
 {
-    program.use();
-    const uint32_t bit = 1u << (uint32_t)id;
-    const int first = (g_frame.prepared & bit) == 0;
-    if (first) {
-        g_frame.prepared |= bit;
-        g_frame.clip_near[id] = clip_near;
-        set1f(near_loc, clip_near);
-    } else if (g_frame.clip_near[id] != clip_near) {
-        g_frame.clip_near[id] = clip_near;
-        set1f(near_loc, clip_near);
-    }
-    return first;
-}
-
-static void prepare_mode4(float clip_near)
-{
-    Mode4Pass &p = g_gpu.mode4;
-    if (prepare_pass(
-            p.prog, PASS_MODE4, p.u_near_clip_plane, clip_near)) {
-        set_mode4_camera(p, *g_frame.cam, g_frame.projection);
-        set1f(p.u_fog_distance, g_frame.fog);
-    }
-}
-
-static void prepare_geo(float clip_near)
-{
-    GeoPass &p = g_gpu.geo;
-    if (prepare_pass(p.prog, PASS_GEO, p.u_near_clip_plane, clip_near)) {
-        const Mw2erCamera &cam = *g_frame.cam;
-        set4x4(p.u_projection, g_frame.projection);
-        set3f(p.u_camera_right, cam.right);
-        set3f(p.u_camera_up, cam.up);
-        set3f(p.u_camera_forward, cam.forward);
-        set3f(p.u_camera_position, cam.position);
-        set1f(p.u_wireframe_fade_start, cam.imaging_fade_start);
-        set1f(p.u_wireframe_fade_end, cam.imaging_fade_end);
-    }
-}
-
-static void prepare_indexed_geo(float clip_near)
-{
-    IndexedGeoPass &p = g_gpu.idx_geo;
-    if (prepare_pass(
-            p.prog, PASS_INDEXED_GEO, p.u_near_clip_plane, clip_near)) {
-        set_indexed_geo_camera(p, *g_frame.cam, g_frame.projection);
-    }
-}
-
-static void prepare_billboard(float clip_near)
-{
-    BillboardPass &p = g_gpu.billboards;
-    if (prepare_pass(
-            p.prog, PASS_BILLBOARD, p.u_near_clip_plane, clip_near)) {
-        set_billboard_camera(p, *g_frame.cam, g_frame.projection);
-        set2f(p.u_viewport_size, (float)g_frame.scene_w, (float)g_frame.scene_h);
-        set1i(p.u_satellite_billboard, g_frame.cam->satellite_view);
-    }
-}
-
-static void prepare_texmap(TexmapPass &p, ScenePassId id, float clip_near)
-{
-    if (prepare_pass(p.prog, id, p.u_near_clip_plane, clip_near)) {
-        set_texmap_camera(p, *g_frame.cam, g_frame.projection);
-        set1f(p.u_fog_distance, g_frame.fog);
-    }
-}
-
-static void prepare_rotor_outline(float clip_near)
-{
-    RotorOutlinePass &p = g_gpu.rotor_outline;
-    if (prepare_pass(
-            p.prog,
-            PASS_ROTOR_OUTLINE,
-            p.u_near_clip_plane,
-            clip_near)) {
-        const Mw2erCamera &cam = *g_frame.cam;
-        set4x4(p.u_projection, g_frame.projection);
-        set3f(p.u_camera_position, cam.position);
-        set3f(p.u_camera_right, cam.right);
-        set3f(p.u_camera_up, cam.up);
-        set3f(p.u_camera_forward, cam.forward);
-        set1f(p.u_wireframe_fade_start, cam.imaging_fade_start);
-        set1f(p.u_wireframe_fade_end, cam.imaging_fade_end);
-    }
-}
-
-static void prepare_occluder(float clip_near)
-{
-    OccluderPass &p = g_gpu.occluder;
-    if (prepare_pass(
-            p.prog, PASS_OCCLUDER, p.u_near_clip_plane, clip_near)) {
-        const Mw2erCamera &cam = *g_frame.cam;
-        set4x4(p.u_projection, g_frame.projection);
-        set3f(p.u_camera_position, cam.position);
-        set3f(p.u_camera_right, cam.right);
-        set3f(p.u_camera_up, cam.up);
-        set3f(p.u_camera_forward, cam.forward);
-    }
+    SceneDrawUniforms draw{};
+    draw.clip[0] = clip_near;
+    draw.clip[1] = conceal ? 1.0f : 0.0f;
+    glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_DRAW_BINDING]);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(draw), &draw, GL_STREAM_DRAW);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 static float set_scene_raster_scale(int32_t logical_h, int sample_scale)
@@ -1903,8 +1638,7 @@ static float set_scene_raster_scale(int32_t logical_h, int sample_scale)
 static void draw_wire_occluder(
     const Mw2erGeomPartition &gp,
     PartGpu &gpu,
-    int polygon_offset,
-    float clip_near)
+    int polygon_offset)
 {
     if (gpu.wire.vao_occ == 0 ||
         gp.wire_occ_indices.count() < 3 || gp.wire_verts.floats() < 9) {
@@ -1914,7 +1648,7 @@ static void draw_wire_occluder(
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
     }
-    prepare_occluder(clip_near);
+    g_gpu.occluder.prog.use();
     glBindVertexArray(gpu.wire.vao_occ);
     glDrawElements(
         GL_TRIANGLES,
@@ -1958,8 +1692,7 @@ static void draw_texmap_stream(
 
 static void draw_satellite_effects(
     const Mw2erGeomPartition &gp,
-    PartGpu &gpu,
-    float clip_near)
+    PartGpu &gpu)
 {
     if (gpu.billboard_streams[1].empty() &&
         gpu.texmap_streams[0][1].empty() &&
@@ -1980,7 +1713,7 @@ static void draw_satellite_effects(
             continue;
         }
         TexmapPass &tm = camo_pass ? g_gpu.camo : g_gpu.texmaps;
-        prepare_texmap(tm, camo_pass ? PASS_CAMO : PASS_TEXMAP, clip_near);
+        tm.prog.use();
         for (size_t i = 0; i < span.size(); ++i) {
             const Mw2erDescStreams &streams = gp.desc_streams[span[i]];
             if (!desc_ok(streams.desc)) {
@@ -1992,7 +1725,7 @@ static void draw_satellite_effects(
     }
 
     if (!gpu.billboard_streams[1].empty()) {
-        prepare_billboard(clip_near);
+        g_gpu.billboards.prog.use();
         glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_INDEXED);
         for (size_t i = 0; i < gpu.billboard_streams[1].size(); ++i) {
             const Mw2erDescStreams &streams =
@@ -2024,6 +1757,10 @@ int32_t mw2er_scene_capture(Mw2erRenderView primary_view)
         return MW2ER_ERR_MEMORY_VIEW;
     }
     if (g_retained_workload && g_required_geometry) {
+        // Reused geometry still needs live previews, expiry, and IPC heartbeats.
+        const float previous_far = mw2er_level_conceal_far();
+        mw2er_level_capture(g_primary.ex);
+        g_gpu.frame_uniforms_dirty |= previous_far != mw2er_level_conceal_far();
         g_last_extract_ms = 0.0;
         g_primary.changed = g_mfd.changed = 0;
         return MW2ER_OK;
@@ -2039,6 +1776,8 @@ int32_t mw2er_scene_capture(Mw2erRenderView primary_view)
         return MW2ER_ERR_GENERIC;
     }
     g_primary.changed = 1;
+    mw2er_level_capture(g_primary.ex);
+    g_gpu.frame_uniforms_dirty = true;
     if (needed != primary_geometry) {
         if (!mw2er_extract_scene(*view, g_mfd.ex, 1, mfd_view,
                                  g_primary.ex.palette_rgb)) {
@@ -2103,35 +1842,71 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     PartGpu *gpu_parts = scene.part;
     const int upload_frame = scene.changed || force_upload;
     const uint32_t part_mask = view_policy.part_mask;
+    // Keep the distance fade and the clear/sky passes on the same backdrop.
+    const bool wipe = !view_policy.auxiliary && !camera.satellite_view &&
+        (camera.imaging_wireframe || ex.background_wipe);
+    const bool target = part_mask == (1u << MW2ER_PART_TARGET);
+    const bool ground = !target && (ex.ground_visible || camera.satellite_view);
+    const int clear_index = wipe ? ex.fill_palette_index :
+        (ground ? ex.ground_palette_index : 0);
+    const bool draw_sky = ex.sky_visible && !wipe && !camera.satellite_view &&
+        (part_mask & (1u << MW2ER_PART_SCENE));
     {
         double t0 = now_ms();
     upload_and_bind_palette(ex.palette_rgb);
     make_projection(camera, logical_w, logical_h, proj);
+    if (g_gpu.frame_uniforms_dirty) {
+        SceneFrameUniforms frame{};
+        frame.lighting[0] = g_primary.ex.lighting.fog_distance_world;
+        frame.lighting[1] = mw2er_level_conceal_far();
+        frame.lighting[2] = std::max(0.0f, frame.lighting[1] - 500.0f / 65536.0f);
+        frame.lighting[3] = g_primary.ex.sky_visible ? 1.0f : 0.0f;
+        frame.backdrop[0] = palette_u(g_primary.ex.sky_palette_index);
+        frame.backdrop[2] = palette_u((int)g_primary.ex.ground_palette_index - 1);
+        frame.backdrop[3] = g_primary.ex.draw_gradient ?
+            (float)g_primary.ex.gradient_height * SKY_RADIUS / 512.0f : 0.0f;
+        glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_FRAME_BINDING]);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(frame), &frame, GL_STREAM_DRAW);
+        g_gpu.frame_uniforms_dirty = false;
+    }
+    SceneViewUniforms view{};
+    memcpy(view.projection, proj, sizeof(proj));
+    memcpy(view.position, camera.position, sizeof(camera.position));
+    memcpy(view.right, camera.right, sizeof(camera.right));
+    memcpy(view.up, camera.up, sizeof(camera.up));
+    memcpy(view.forward, camera.forward, sizeof(camera.forward));
+    view.viewport[0] = (float)scene_w;
+    view.viewport[1] = (float)scene_h;
+    view.viewport[2] = (float)camera.satellite_view;
+    view.viewport[3] = draw_sky ? 1.0f : 0.0f;
+    view.imaging[0] = camera.imaging_fade_start;
+    view.imaging[1] = camera.imaging_fade_end;
+    view.imaging[2] = palette_u(clear_index);
+    glBindBuffer(GL_UNIFORM_BUFFER, g_gpu.uniform_buffers[SCENE_VIEW_BINDING]);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(view), &view, GL_STREAM_DRAW);
+    const bool view_conceal = !camera.imaging_active && !camera.satellite_view;
+    set_draw_uniforms(camera.clip_near_plane, view_conceal);
+    float previous_clip_near = camera.clip_near_plane;
+    bool previous_conceal = view_conceal;
+    for (GLuint binding = 0; binding < 3; ++binding)
+        glBindBufferBase(GL_UNIFORM_BUFFER, binding, g_gpu.uniform_buffers[binding]);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
-    if (camera.imaging_wireframe ||
-        part_mask == (1u << MW2ER_PART_TARGET)) {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    } else {
-        glClearColor(
-            ex.ground_color[0],
-            ex.ground_color[1],
-            ex.ground_color[2],
-            1.0f);
-    }
+    // Match empty HUD panes: index 0 is normally black but follows palette effects.
+    const float *clear = ex.palette_rgb + 3 * clear_index;
+    glClearColor(clear[0], clear[1], clear[2], 1.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (ex.sky_visible && !camera.imaging_wireframe &&
-        !camera.satellite_view && (part_mask & (1u << MW2ER_PART_SCENE))) {
+    if (draw_sky) {
         SkyPass &sky = g_gpu.sky;
         glDisable(GL_DEPTH_TEST);
         sky.prog.use();
-        set_sky_camera(sky, camera, proj);
         set1f(sky.u_y_scale, 1.0f);
         set1f(sky.u_palette_start, palette_u(ex.sky_palette_index));
         set1f(sky.u_palette_end, palette_u(ex.sky_palette_index));
@@ -2153,12 +1928,6 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     float point_raster = 1.0f;
     if (emit_mode4) {
         point_raster = set_scene_raster_scale(logical_h, sample_scale);
-        g_frame.cam = &camera;
-        memcpy(g_frame.projection, proj, sizeof(g_frame.projection));
-        g_frame.fog = ex.lighting.fog_distance_world;
-        g_frame.scene_w = scene_w;
-        g_frame.scene_h = scene_h;
-        g_frame.prepared = 0;
         if (upload_frame) {
             sync_desc_slots();
         }
@@ -2213,8 +1982,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
             draw_wire_occluder(
                 ex.part[pid],
                 gpu_parts[pid],
-                1,
-                camera.clip_near_plane);
+                1);
         }
     }
 
@@ -2239,6 +2007,12 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     }
     const float clip_near =
         pid == MW2ER_PART_COCKPIT ? 0.0f : camera.clip_near_plane;
+    const bool conceal = view_conceal && pid != MW2ER_PART_COCKPIT;
+    if (clip_near != previous_clip_near || conceal != previous_conceal) {
+        set_draw_uniforms(clip_near, conceal);
+        previous_clip_near = clip_near;
+        previous_conceal = conceal;
+    }
     const int have_culled_geometry =
         gp.wire_occ_indices.count() >= 3 || gp.tris.floats() >= 15 ||
         gp.flats.floats() >= 12 || gp.indexed_flat_indices.count() >= 3 ||
@@ -2255,13 +2029,12 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
         draw_wire_occluder(
             gp,
             gpu,
-            camera.imaging_wireframe || camera.satellite_view,
-            clip_near);
+            camera.imaging_wireframe || camera.satellite_view);
     }
 
     if (emit_mode4 && gp.tris.floats() >= 15) {
         Mode4Pass &m4 = g_gpu.mode4;
-        prepare_mode4(clip_near);
+        g_gpu.mode4.prog.use();
         glBindVertexArray(gpu.tris.vao);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(gp.tris.floats() / 5));
         if (diagnostics) {
@@ -2280,7 +2053,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
 
     if (emit_mode4 && gp.flats.floats() >= 12) {
         GeoPass &geo = g_gpu.geo;
-        prepare_geo(clip_near);
+        g_gpu.geo.prog.use();
         set1f(geo.u_point_size, 1.0f);
         glBindVertexArray(gpu.flats.vao);
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(gp.flats.floats() / 4));
@@ -2289,7 +2062,8 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     if (emit_mode4 && gp.indexed_flat_indices.count() >= 3 &&
         gp.indexed_flat_verts.floats() >= 9) {
         IndexedGeoPass &ig = g_gpu.idx_geo;
-        prepare_indexed_geo(clip_near);
+        g_gpu.idx_geo.prog.use();
+        set1f(ig.u_constant_palette, -1.0f);
         glBindVertexArray(gpu.idx_flat.vao);
         bind_prim_unit(gpu.idx_flat.prim_tex);
         glDrawElements(
@@ -2309,7 +2083,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
                 continue;
             }
             TexmapPass &tm = camo_pass ? g_gpu.camo : g_gpu.texmaps;
-            prepare_texmap(tm, camo_pass ? PASS_CAMO : PASS_TEXMAP, clip_near);
+            tm.prog.use();
             for (size_t i = 0; i < span.size(); ++i) {
                 const Mw2erDescStreams &streams = gp.desc_streams[span[i]];
                 const int desc = streams.desc;
@@ -2326,7 +2100,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
         if (!gpu.billboard_streams[0].empty()) {
             glDisable(GL_CULL_FACE);
             cull_disabled = 1;
-            prepare_billboard(clip_near);
+            g_gpu.billboards.prog.use();
             glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_INDEXED);
         }
         for (size_t i = 0; i < gpu.billboard_streams[0].size(); ++i) {
@@ -2368,7 +2142,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
                 glDisable(GL_CULL_FACE);
                 cull_disabled = 1;
             }
-            prepare_geo(clip_near);
+            g_gpu.geo.prog.use();
             set1f(geo.u_point_size, point_raster);
             if (gp.points.floats() >= 4) {
                 glBindVertexArray(gpu.points.vao);
@@ -2387,9 +2161,10 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
                 glDisable(GL_CULL_FACE);
                 cull_disabled = 1;
             }
-            prepare_indexed_geo(clip_near);
+            g_gpu.idx_geo.prog.use();
+            set1f(g_gpu.idx_geo.u_constant_palette, (float)gp.wire_palette_index);
             glBindVertexArray(gpu.wire.vao_line);
-            bind_prim_unit(gpu.wire.line_prim);
+            if (gp.wire_palette_index < 0) bind_prim_unit(gpu.wire.line_prim);
             glDrawElements(
                 GL_LINES,
                 (GLsizei)gp.wire_line_indices.count(),
@@ -2464,7 +2239,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
              * triangles. */
             if (have_outline) {
                 RotorOutlinePass &outline = g_gpu.rotor_outline;
-                prepare_rotor_outline(clip_near);
+                g_gpu.rotor_outline.prog.use();
                 if (!cull_disabled) {
                     glDisable(GL_CULL_FACE);
                     cull_disabled = 1;
@@ -2491,7 +2266,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
                 /* Two coplanar discs, opposite winding. Keep backface cull so
                  * only the facing texture is drawn, matching Python. */
                 glEnable(GL_CULL_FACE);
-                prepare_texmap(tm, PASS_ROTOR, clip_near);
+                tm.prog.use();
                 for (int oi = 0; oi < nrot; ++oi) {
                     const Mw2erRotorDraw &batch = gp.rotor_draws[order[oi]];
                     if (batch.outline_only) {
@@ -2581,7 +2356,7 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
         }
 
         if (camera.satellite_view) {
-            draw_satellite_effects(gp, gpu, clip_near);
+            draw_satellite_effects(gp, gpu);
         }
     }
     if (debug_group) {
@@ -2589,6 +2364,9 @@ static int32_t draw_scene(SceneGeometry &scene, const Mw2erCamera &camera,
     }
     }
 
+    for (GLuint binding = 0; binding < 3; ++binding)
+        glBindBufferBase(GL_UNIFORM_BUFFER, binding, 0);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
     glBindVertexArray(0);
     glUseProgram(0);
     glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_PALETTE);

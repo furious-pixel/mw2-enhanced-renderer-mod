@@ -38,8 +38,11 @@ RESET_FILE_PATHS = [str(path) for path in CONFIG_PATHS.values()]
 
 GAME_INSTALL_DIR = ROOT_DIR / "game" / "c_mech2" / "mech2"
 SUPPORTED_GAME_FILES = (
+    {"name": "MECH2_16B.BIN", "relative_path": "game/MECH2_16B.BIN"},
+    {"name": "MECH2_16B.CUE", "relative_path": "game/MECH2_16B.CUE"},
     {
         "name": "MW2.EXE",
+        "relative_path": "game/c_mech2/mech2/MW2.EXE",
         "expected_sha256": (
             "c4a42d0d448de50a75c7a41f40bb7146"
             "c6afa70d646cc18e6bacb7850737903f"
@@ -51,6 +54,7 @@ SUPPORTED_GAME_FILES = (
     },
     {
         "name": "MW2.PRJ",
+        "relative_path": "game/c_mech2/mech2/MW2.PRJ",
         "expected_sha256": (
             "74ddb4f3721c0736f7ab59bdb2c07e16"
             "f6677e3605f77895e6efba489d2e8746"
@@ -70,30 +74,34 @@ def _sha256_file(path):
 def _installation_state():
     files = []
     for supported_file in SUPPORTED_GAME_FILES:
-        path = GAME_INSTALL_DIR / supported_file["name"]
+        path = ROOT_DIR / supported_file["relative_path"]
+        expected_hash = supported_file.get("expected_sha256")
         result = {
             "name": supported_file["name"],
             "path": str(path),
             "relative_path": str(path.relative_to(ROOT_DIR)),
-            "exists": path.is_file(),
+            "exists": False,
+            "check": "sha256" if expected_hash else "presence",
             "size": None,
             "sha256": None,
             "matches": False,
             "is_unpatched": False,
             "error": None,
         }
-        if result["exists"]:
-            try:
+        try:
+            result["exists"] = path.is_file()
+            if result["exists"]:
                 result["size"] = path.stat().st_size
-                result["sha256"] = _sha256_file(path)
-                result["matches"] = (
-                    result["sha256"] == supported_file["expected_sha256"]
-                )
-                result["is_unpatched"] = (
-                    result["sha256"] == supported_file.get("unpatched_sha256")
-                )
-            except OSError as exc:
-                result["error"] = str(exc)
+                if expected_hash:
+                    result["sha256"] = _sha256_file(path)
+                    result["matches"] = result["sha256"] == expected_hash
+                    result["is_unpatched"] = (
+                        result["sha256"] == supported_file.get("unpatched_sha256")
+                    )
+                else:
+                    result["matches"] = True
+        except OSError as exc:
+            result["error"] = str(exc)
         files.append(result)
     return {
         "ok": all(file_state["matches"] for file_state in files),

@@ -1,19 +1,20 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 uniform sampler2D u_palette;
 uniform sampler2D u_indexed_texture;
 uniform int u_remap_kind;
 uniform vec3 u_dark_ratio;
 uniform vec3 u_fog_terminal_color;
 uniform vec3 u_s8_ratio;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_forward;
-uniform float u_near_clip_plane;
 
 in vec2 v_uv;
 in float v_light_t;
 in vec3 v_world_pos;
 out vec4 frag_color;
+
+@CONCEALMENT_FUNCTIONS@
 
 void main() {
     if (
@@ -23,6 +24,7 @@ void main() {
     ) {
         discard;
     }
+    concealmentClip(v_world_pos);
     float palette_index = floor(texture(u_indexed_texture, v_uv).r * 255.0 + 0.5);
     float palette_u = (clamp(palette_index, 0.0, 255.0) + 0.5) / 256.0;
     vec3 base_rgb = texture(u_palette, vec2(palette_u, 0.5)).rgb;
@@ -46,5 +48,5 @@ void main() {
             rgb = mix(u_fog_terminal_color, mid, u);
         }
     }
-    frag_color = vec4(rgb, 1.0);
+    frag_color = vec4(applyConcealment(rgb, v_world_pos), 1.0);
 }

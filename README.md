@@ -65,14 +65,24 @@ runs the simulation, missions, AI, sound, music, and interface.
 1. **[Download the Windows x64 release](https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/latest)**
    and extract it into a fresh directory.
 2. **Run `configure.bat` and follow the Game Installation tab.** It shows
-   where to place your complete installed DOS game and `.bin`/`.cue` CD image,
-   how to apply the official v1.1 patch if needed, and which in-game detail
-   settings to use. Confirm that both game files show as verified.
+   where to place your complete installed DOS game and how to name your
+   `.bin`/`.cue` CD image files. **If you had to rename the .bin / .cue files,** open the `.cue`
+   file in a text editor and change the filename in its first line to
+   `MECH2_16B.bin`, keeping the rest of the line unchanged.
+   Confirm that both CD image files show as
+   **File present** and that `MW2.EXE` and `MW2.PRJ` show as **Verified**.
+   CD image files are checked for presence only. The tab identifies supported
+   `MW2.EXE` versions, shows patch instructions when v1.0 is detected, and
+   lists the required in-game detail settings.
 3. **Review the Input, Renderer, and HUD tabs** to suit your controls and
    display. Settings save automatically. Keyboard users can leave joystick
    input disabled.
 4. **Run a `launchmw2_<FPS>fps.bat` launcher.** Choose the FPS version closest
    to your monitor's refresh rate. FPS selection is manual for now.
+
+[![Game Installation showing the required file tree, verified DOS version 1.1, and game detail settings](media/configure-installation.png)](media/configure-installation.png)
+
+*Game Installation after all required files are found and verified (v0.11.0).*
 
 Keep the **in-game resolution at 1024×768** and enable the effects listed in
 the installation tab. This is the original game's internal resolution; the
@@ -147,6 +157,21 @@ both the original and enhanced renderers.
 | `Ctrl+Shift+/` | Show both renderers side by side. |
 | `Ctrl+Alt+/` | Show the comparison while allowing native 3D rendering to be suppressed. |
 
+### Level tweaker
+
+Run `launch_level_tweak.bat` to open the game and the level tweaker together.
+The launcher places the panel below the game when there is enough vertical
+space, otherwise beside it. The panel closes when DOSBox exits, after any
+active save finishes. To reopen it during the same launch, run
+`level_tweaker.bat <channel>` using the channel printed by the launcher.
+
+In a mission, preview view-distance presets or a custom distance. **Save**
+writes the override to `mw2mods/user_level_overrides.json`. The simulation
+speed buttons select **¼×**, **Normal**, or **8×**, without changing audio
+speed. Speed changes are temporary: disconnecting the panel or starting a
+new mission restores the previous setting unless the game's own cheats
+changed it afterward. Simulation speed is never saved with distance overrides.
+
 ## Updating
 
 Extract the new release into a fresh directory, then copy these from your
@@ -155,6 +180,7 @@ previous installation:
 - `game/`
 - `mw2mods/mod.conf`
 - `mw2mods/joystick.conf`, if present
+- `mw2mods/user_level_overrides.json`, if present
 
 Your existing settings carry over. You can launch immediately, or run
 `configure.bat` to review newly available options.
@@ -221,6 +247,9 @@ clarification, narrow runtime instrumentation and memory observation are used
 to test the game's behavior.
 
 ## Acknowledgements
+
+Thanks to skyfaller and the mech2.org community for the original Farpatcher
+view-distance values, which are available as presets in the level tweaker.
 
 Thanks to @anpage for [documenting the high-frame-rate jump-jet fuel issue](https://gist.github.com/anpage/9b5ec3d72200117e224b2e696e8b4280),
 which helped me understand the recharge problem.

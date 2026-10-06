@@ -25,6 +25,8 @@ frame_timing.log
 dosbox-x.log
 mw2mods/renderer_debug.log
 /mw2mods/joystick.conf
+/mw2mods/user_level_overrides.json
+/mw2mods/user_level_overrides.*.tmp
 perf-results/
 
 # Generated Python bytecode

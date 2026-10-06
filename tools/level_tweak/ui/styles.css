@@ -1,0 +1,240 @@
+:root {
+  color-scheme: dark;
+  --bg: #081116;
+  --panel: #102029;
+  --text: #e8f1f2;
+  --muted: #8fa5ab;
+  --accent: #55d6c2;
+  --amber: #e6b75c;
+  --border: rgba(145, 183, 194, 0.18);
+  --max: #55d6c2;
+  --game: #e6b75c;
+  --radial: #e88b4d;
+  --farpatcher: #c4a35a;
+  --shipped: #6fbf73;
+  --custom: #c5d0d4;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font: 13px/1.35 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.strip {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.9fr) auto minmax(280px, 1.4fr) minmax(280px, 1.2fr);
+  gap: 8px 12px;
+  height: 100%;
+  padding: 8px 12px;
+  align-items: stretch;
+}
+
+section {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.kicker, .source {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code {
+  margin-top: 2px;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.presets {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  width: 124px;
+}
+
+button, input, label, textarea { font: inherit; }
+
+.preset, #save-button, [data-time] {
+  border: 1px solid var(--border);
+  background: #142832;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.time-controls { margin-top: 12px; }
+.time-buttons { display: flex; gap: 4px; margin: 4px 0; }
+[data-time] { padding: 3px 6px; white-space: nowrap; }
+[data-time][aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+[data-time]:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.preset {
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.preset-max { color: var(--max); }
+.preset-game { color: var(--game); }
+.preset-game-radial { color: var(--radial); }
+.preset-farpatcher { color: var(--farpatcher); }
+.preset-shipped { color: var(--shipped); }
+.preset-custom { color: var(--custom); }
+
+.preset.active {
+  border-color: currentColor;
+  background: #0d1c24;
+}
+
+.preset:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.slider-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.slider-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+}
+
+.slider-wrap {
+  position: relative;
+  height: 28px;
+}
+
+.ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 8px;
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 8px;
+  transform: translateX(-1px);
+}
+
+.tick-max { background: var(--max); }
+.tick-game { background: var(--game); }
+.tick-game-radial { background: var(--radial); }
+.tick-farpatcher { background: var(--farpatcher); }
+.tick-shipped { background: var(--shipped); }
+
+#metres {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  margin: 0;
+}
+
+.custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-row label { color: var(--muted); }
+
+#custom-metres {
+  width: 96px;
+  background: #081116;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+}
+
+.hint, .save-status {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hint.warn { color: var(--amber); }
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#comment {
+  flex: 1;
+  min-height: 52px;
+  resize: none;
+  background: #081116;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.critical-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.save-row { display: flex; justify-content: flex-end; }
+
+#save-button {
+  padding: 5px 12px;
+  color: var(--amber);
+}
+
+#save-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1000px) {
+  html, body { overflow: auto; }
+  .strip {
+    height: auto;
+    min-height: 100%;
+    grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.4fr);
+  }
+  .presets {
+    width: auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .slider-block, .verdict { min-height: 200px; }
+}

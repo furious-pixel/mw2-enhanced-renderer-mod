@@ -1,14 +1,9 @@
 #version 330
 
+@SCENE_UNIFORMS@
+
 in vec3 in_pos;
 
-uniform mat4 u_projection;
-uniform vec3 u_camera_position;
-uniform vec3 u_camera_right;
-uniform vec3 u_camera_up;
-uniform vec3 u_camera_forward;
-uniform float u_wireframe_fade_start;
-uniform float u_wireframe_fade_end;
 
 out vec3 v_world_pos;
 out float v_wireframe_fade;
