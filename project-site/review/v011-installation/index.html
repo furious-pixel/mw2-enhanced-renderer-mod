@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" data-style="midnight">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MechWarrior 2 • Enhanced Renderer Mod</title>
+<meta name="description" content="The DOS MechWarrior 2 aesthetic, polished: widescreen rendering, a rebuilt HUD, and HOTAS controls. An unofficial fan mod for Windows x64.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23101416'/%3E%3Cpath d='M6 24V8l10 10L26 8v16' fill='none' stroke='%23ffc66b' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../public/site.css?v=2">
+</head>
+<body>
+<header><a class="brand" href="#">MW2 <span>ENHANCED RENDERER MOD</span></a><nav aria-label="Main"><a href="#screenshots">Screenshots</a><a href="#features">Features</a><a href="#start">Download &amp; setup</a></nav></header>
+<main>
+<section class="intro">
+<p class="eyebrow">MECHWARRIOR 2: 31ST CENTURY COMBAT / DOS</p>
+<h1>MechWarrior 2<br><span>Enhanced Renderer Mod</span></h1>
+<p>This mod aims to preserve the DOS game’s art style—its original assets, dramatic gradients, and colors—but polish the presentation: widescreen and high-resolution rendering, the original HUD reproduced in crisp high resolution with the iconic MechWarrior font, and precise HOTAS axis input. The original game still runs the simulation, missions, AI, sound, and music, and you can dynamically switch between the original DOS renderer and the enhanced renderer.</p>
+<a class="button" href="#start">Download for Windows ↓</a>
+</section>
+<section id="screenshots" class="gallery" aria-label="Screenshots">
+<figure class="wide"><a href="../../public/assets/mw2-EnhancedRendererMod-htal-damage-wireframe.png"><img src="../../public/assets/mw2-EnhancedRendererMod-htal-damage-wireframe.png" width="3440" height="1440" alt="Widescreen cockpit with the original HUD reproduced in crisp high resolution and a combined damage display"></a><figcaption>Widescreen cockpit · original HUD reproduced in crisp high resolution</figcaption></figure>
+</section>
+<section id="showcase" aria-label="Showcase video"><div class="video"><iframe loading="lazy" src="https://www.youtube-nocookie.com/embed/92L_ptU0zko" title="MechWarrior 2 Enhanced Renderer Mod showcase" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><a class="small" href="https://youtu.be/92L_ptU0zko">Watch on YouTube ↗</a></section>
+<section class="gallery" aria-label="More screenshots">
+<figure><a href="../../public/assets/sunset.png"><img src="../../public/assets/sunset.png" width="1024" height="768" loading="lazy" alt="A mech against an orange sunset and dark canyon silhouettes"></a></figure>
+<figure><a href="../../public/assets/action.png"><img src="../../public/assets/action.png" width="1024" height="768" loading="lazy" alt="A close explosion lighting up a mech in the cockpit view"></a></figure>
+<figure><a href="../../public/assets/satellite-view.png"><img src="../../public/assets/satellite-view.png" width="1024" height="768" loading="lazy" alt="Overhead satellite view with targeting markers and the damage wireframe display"></a></figure>
+</section>
+
+<section id="features" class="features">
+<h2>Features</h2>
+<ul class="feature-list">
+<li><strong>High-resolution widescreen rendering</strong> with 4× supersampling, smoother cockpit motion, and reduced polygon wobble.</li>
+<li><strong>The original HUD in crisp high resolution,</strong> using the iconic MechWarrior font, with adjustable panel placement and scaling.</li>
+<li><strong>Smooth HUD animations and palette transitions:</strong> startup, shutdown, target acquisition, mission fade-ins, and day/night changes.</li>
+<li><strong>Combined damage wireframe and armor/internal-structure meters,</strong> with fractional scaling and optional CRT smoothing and glow.</li>
+<li><strong>Enhanced cameras, satellite view, and enhanced imaging,</strong> alongside weapon, damage, and HUD glitch effects.</li>
+<li><strong>Precise HOTAS axis input:</strong> direct-position or relative-rate aiming, response curves, inversion, calibration, and live preview.</li>
+<li><strong>Improved scene detail,</strong> including smoother camouflage, dropship panel textures, and motion-blurred rotors.</li>
+<li><strong>Capped framerate</strong> to reduce self-damage from your own LRMs, plus corrected jump-jet fuel recharge at higher frame rates.</li>
+</ul>
+</section>
+<div class="notes">
+<section id="start">
+<h2>Download &amp; setup</h2>
+<p><strong>You’ll need:</strong> Windows x64 on Intel/AMD hardware, your own installed DOS copy of <em>MechWarrior 2: 31st Century Combat</em>, and its CD image. The game must be patched to v1.1; the configurator guides you through this.</p>
+<p class="small">No game files are included. Other editions, Linux/Wine, and Windows ARM64 are unsupported.</p>
+<a id="release-download" class="button" href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/v0.10.1/mw2-enhanced-renderer-mod-v0.10.1-windows-x64.zip">Download v0.10.1 · Windows x64 ZIP (prerelease)</a>
+<p class="small"><a id="source-download" href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases/download/v0.10.1/mw2-enhanced-renderer-mod-v0.10.1-source.zip">Corresponding source v0.10.1 (ZIP)</a></p>
+<p class="prepare"><strong>Start here:</strong> Download the ZIP and extract it into a <strong>fresh folder</strong>. Then follow the instructions that apply to you.</p>
+<div class="install-paths">
+<section aria-labelledby="fresh-title" class="install-path">
+<h3 id="fresh-title">First-time installation</h3>
+<ol>
+<li><strong>Open the configurator.</strong><br>Run <code>configure.bat</code> in the new folder.</li>
+<li><strong>Set up your game and display.</strong><br>Follow <strong>Game Installation</strong> for file placement, patching, verification, and required game settings. Adjust display settings in Renderer and HUD. Settings save automatically.</li>
+<li><strong>Optional: set up your HOTAS.</strong><br>In Input, map axes and tune response curves, inversion, deadzones, and calibration with the live preview. Map buttons to keyboard controls using <a href="https://joytokey.net/en/">JoyToKey</a> or <a href="https://whitemagic.github.io/JoystickGremlin/quickstart.html">Joystick Gremlin</a>.</li>
+</ol>
+<figure class="installation-example">
+<a href="configure-installation.png"><img src="configure-installation.png" width="1537" height="1035" loading="lazy" alt="Game Installation showing the required file tree, verified DOS version 1.1, and game detail settings"></a>
+<figcaption><a href="configure-installation.png">View installation example ↗</a> · v0.11.0<br>All required files found and verified.</figcaption>
+</figure>
+</section>
+<section aria-labelledby="update-title" class="install-path">
+<h3 id="update-title">Migrating from an existing mod installation</h3>
+<ol>
+<li><strong>Copy your game and settings.</strong><br>Copy these from your existing mod installation into the same locations in the new folder:
+<ul class="copy-files"><li><code>game/</code></li><li><code>mw2mods/mod.conf</code></li><li><code>mw2mods/joystick.conf</code>, if present</li></ul></li>
+<li><strong>Your settings carry over.</strong><br>You’re ready to play. To review new options, run <code>configure.bat</code>.</li>
+</ol>
+</section>
+</div>
+<div class="launch"><h3>Launch the game.</h3><p>In the new folder, run <code>launchmw2_&lt;FPS&gt;fps.bat</code> with the FPS value closest to your monitor’s refresh rate.</p></div>
+<section class="shortcuts" aria-labelledby="shortcuts-title">
+<h3 id="shortcuts-title">Switch renderers during a mission</h3>
+<table><thead><tr><th scope="col">Keys</th><th scope="col">Action</th></tr></thead><tbody>
+<tr><td><kbd>Ctrl</kbd> + <kbd>/</kbd></td><td>Switch between the original DOS renderer and the enhanced renderer.</td></tr>
+<tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>/</kbd></td><td>Show the original and enhanced renderers side by side.</td></tr>
+</tbody></table>
+<p class="small">Hold the modifier keys and press <kbd>/</kbd> (forward slash).</p>
+</section>
+<p class="small">See the <a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases">release notes</a> for current status and limitations. Feedback and <a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/issues">reproducible bug reports</a> are welcome.</p>
+</section>
+</div>
+</main>
+<footer><nav aria-label="Project links"><a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/blob/main/README.md">README ↗</a><a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/releases">All releases ↗</a><a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod#acknowledgements">Credits ↗</a><a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/blob/main/LICENSE">License ↗</a><a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices ↗</a></nav><p>Thanks to the beta testers for their time, feedback, and bug reports.</p><p>Project-authored code and assets: GPL-2.0-or-later, except where otherwise noted. See <a href="https://github.com/furious-pixel/mw2-enhanced-renderer-mod/blob/main/COPYRIGHT">copyright and scope</a>. Third-party components retain their own licenses.</p><p>Unofficial fan project. Not affiliated with the creators or publishers of MechWarrior 2. Trademarks belong to their respective owners.</p></footer>
+</body></html>

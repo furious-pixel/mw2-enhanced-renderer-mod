@@ -1,0 +1,13 @@
+--- a/project-site/public/index.html
++++ b/project-site/public/index.html
+@@ -55,6 +55,10 @@
+ <li><strong>Set up your game and display.</strong><br>Follow <strong>Game Installation</strong> for file placement, patching, verification, and required game settings. Adjust display settings in Renderer and HUD. Settings save automatically.</li>
+ <li><strong>Optional: set up your HOTAS.</strong><br>In Input, map axes and tune response curves, inversion, deadzones, and calibration with the live preview. Map buttons to keyboard controls using <a href="https://joytokey.net/en/">JoyToKey</a> or <a href="https://whitemagic.github.io/JoystickGremlin/quickstart.html">Joystick Gremlin</a>.</li>
+ </ol>
++<figure class="installation-example">
++<a href="assets/configure-installation.png"><img src="assets/configure-installation.png" width="1537" height="1035" loading="lazy" alt="Game Installation showing the required file tree, verified DOS version 1.1, and game detail settings"></a>
++<figcaption><a href="assets/configure-installation.png">View installation example ↗</a> · v0.11.0<br>All required files found and verified.</figcaption>
++</figure>
+ </section>
+ <section aria-labelledby="update-title" class="install-path">
+ <h3 id="update-title">Migrating from an existing mod installation</h3>

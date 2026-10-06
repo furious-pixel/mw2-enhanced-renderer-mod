@@ -1,0 +1,3 @@
+Prepared for v0.11.0; not deployed.
+At release time, apply installation-preview.patch from the repository root and copy configure-installation.png into project-site/public/assets/.
+The preview uses the current site stylesheet and existing assets. Release links remain unchanged until the normal release refresh.
