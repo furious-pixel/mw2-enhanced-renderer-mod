@@ -77,6 +77,10 @@ runs the simulation, missions, AI, sound, music, and interface.
 4. **Run a `launchmw2_<FPS>fps.bat` launcher.** Choose the FPS version closest
    to your monitor's refresh rate. FPS selection is manual for now.
 
+[![Game Installation showing the required file tree, verified DOS version 1.1, and game detail settings](media/configure-installation.png)](media/configure-installation.png)
+
+*Game Installation after all required files are found and verified (v0.11.0).*
+
 Keep the **in-game resolution at 1024×768** and enable the effects listed in
 the installation tab. This is the original game's internal resolution; the
 enhanced renderer draws at your output resolution, including widescreen.
