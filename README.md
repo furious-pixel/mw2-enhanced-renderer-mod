@@ -248,6 +248,9 @@ to test the game's behavior.
 
 ## Acknowledgements
 
+Thanks to skyfaller and the mech2.org community for the original Farpatcher
+view-distance values, which are available as presets in the level tweaker.
+
 Thanks to @anpage for [documenting the high-frame-rate jump-jet fuel issue](https://gist.github.com/anpage/9b5ec3d72200117e224b2e696e8b4280),
 which helped me understand the recharge problem.
 
